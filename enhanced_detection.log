@@ -1,0 +1,17 @@
+2025-09-23 10:47:01,932 - ERROR - Frame processing error: 'conf=-0.05' is an invalid value. Valid 'conf' values are between 0.0 and 1.0.
+2025-09-23 10:59:00,735 - ERROR - Frame processing error: model='' is not a supported model format. Ultralytics supports: ('PyTorch', 'TorchScript', 'ONNX', 'OpenVINO', 'TensorRT', 'CoreML', 'TensorFlow SavedModel', 'TensorFlow GraphDef', 'TensorFlow Lite', 'TensorFlow Edge TPU', 'TensorFlow.js', 'PaddlePaddle', 'MNN', 'NCNN', 'IMX', 'RKNN')
+See https://docs.ultralytics.com/modes/predict for help.
+2025-09-23 11:05:02,658 - INFO - ✅ Enhanced Plate Detector initialized with streaming config
+2025-09-23 11:05:02,658 - INFO - Starting YOLOv8 background loading...
+2025-09-23 11:05:02,658 - INFO - 🔄 Loading YOLOv8 model in background...
+2025-09-23 11:05:02,658 - INFO - HeadlessStreamManager initialized
+2025-09-23 11:05:02,658 - INFO - Loading YOLOv8 model: yolov8n.pt
+2025-09-23 11:05:02,658 - INFO - Test log message
+2025-09-23 11:05:02,671 - INFO - ✅ YOLOv8 model loaded successfully
+2025-09-23 11:05:02,671 - INFO - 📊 Model classes: 80
+2025-09-23 11:05:02,671 - INFO - Object detection enabled
+2025-09-23 11:05:02,671 - INFO - ✅ YOLOv8 loaded and enabled! Object detection active.
+2025-09-23 11:05:02,778 - ERROR - Failed to open video source: 0
+2025-09-23 11:05:02,778 - ERROR - Failed to start video stream
+2025-09-23 11:05:02,779 - INFO - Stopping video stream...
+2025-09-23 11:05:02,779 - INFO - Video stream stopped

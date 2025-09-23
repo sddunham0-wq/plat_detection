@@ -1,0 +1,76 @@
+{
+  "summary": {
+    "total_tests": 5,
+    "passed_tests": 5,
+    "failed_tests": 0,
+    "success_rate": 100.0,
+    "timestamp": "2025-09-23T13:50:28.016530",
+    "configuration": {
+      "similarity_threshold": 0.85,
+      "spatial_proximity_distance": 60.0,
+      "plate_expiry_time": 3.0,
+      "confirmation_threshold": 2,
+      "confidence_filter_min": 0.6
+    }
+  },
+  "test_results": {
+    "test_1": {
+      "test_name": "Baseline Accuracy",
+      "frames_processed": 10,
+      "expected_unique_plates": 4,
+      "actual_unique_plates": 4,
+      "confirmed_plates": 0,
+      "raw_detections": 40,
+      "duplicates_filtered": 36,
+      "false_positives_filtered": 0,
+      "accuracy_rate": 100.0,
+      "deduplication_rate": 90.0,
+      "passed": true
+    },
+    "test_2": {
+      "test_name": "Duplicate Filtering",
+      "rapid_detections_sent": 20,
+      "expected_unique_plates": 1,
+      "actual_unique_plates": 1,
+      "duplicates_filtered": 18,
+      "raw_detections": 20,
+      "filter_effectiveness": 90.0,
+      "passed": true
+    },
+    "test_3": {
+      "test_name": "Spatial Filtering",
+      "positions_tested": 3,
+      "expected_unique_plates": 2,
+      "actual_unique_plates": 2,
+      "spatial_proximity_distance": 60.0,
+      "passed": true
+    },
+    "test_4": {
+      "test_name": "RTSP Stream Accuracy",
+      "frames_processed": 30,
+      "processing_time_seconds": 1.63,
+      "current_visible_plates": 0,
+      "total_unique_plates": 0,
+      "confirmed_plates": 0,
+      "raw_detections": 0,
+      "duplicates_filtered": 0,
+      "false_positives_filtered": 0,
+      "deduplication_rate": 0.0,
+      "confirmation_rate": 0.0,
+      "avg_processing_time_ms": 0.0,
+      "passed": true
+    },
+    "test_5": {
+      "test_name": "Stress Test",
+      "stress_detections_sent": 1000,
+      "processing_time_seconds": 0.01,
+      "detections_per_second": 78083,
+      "expected_unique_plates": 4,
+      "actual_unique_plates": 4,
+      "duplicates_filtered": 996,
+      "avg_processing_time_ms": 0.04,
+      "deduplication_efficiency": 99.6,
+      "passed": true
+    }
+  }
+}

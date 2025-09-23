@@ -9,6 +9,7 @@ import threading
 import time
 import logging
 import numpy as np
+import os
 from typing import Optional, Callable, Dict, Any
 from dataclasses import dataclass
 from utils.video_stream import VideoStream, RTSPStream, WebcamStream
@@ -18,6 +19,8 @@ from utils.yolo_plate_detector import YOLOPlateDetector
 from utils.hybrid_plate_detector import HybridPlateDetector
 from utils.yolo_detector import YOLOObjectDetector, create_yolo_detector
 from utils.tracking_manager import TrackingManager
+from utils.plate_counter_manager import PlateCounterManager, create_plate_counter_manager
+from enhanced_plate_detector import EnhancedPlateDetector
 from database import PlateDatabase
 from config import TrackingConfig
 
@@ -49,10 +52,41 @@ class HeadlessStreamManager:
         """
         self.source = source
         self.database = database or PlateDatabase()
-        
+
+        # Setup logging FIRST
+        self.logger = logging.getLogger(__name__)
+
         # Components
         self.video_stream = None
-        self.plate_detector = HybridPlateDetector(streaming_mode=True)  # ✅ HYBRID DETECTION (YOLO+OpenCV) UNTUK AKURASI MAKSIMAL
+
+        # Initialize Enhanced Plate Detector dengan streaming config dan fallback ke Hybrid
+        try:
+            # Try no-lag config first for optimal performance
+            nolag_config = 'enhanced_detection_nolag_config.ini'
+            streaming_config = 'enhanced_detection_streaming_config.ini'
+
+            if os.path.exists(nolag_config):
+                self.plate_detector = EnhancedPlateDetector(nolag_config)
+                self.logger.info("✅ Enhanced Plate Detector initialized with NO-LAG config")
+            elif os.path.exists(streaming_config):
+                self.plate_detector = EnhancedPlateDetector(streaming_config)
+                self.logger.info("✅ Enhanced Plate Detector initialized with streaming config")
+            else:
+                self.plate_detector = EnhancedPlateDetector('enhanced_detection_config.ini')
+                self.logger.info("✅ Enhanced Plate Detector initialized with default config")
+
+            self.enhanced_mode = True
+
+            # Optimize untuk streaming performance
+            if hasattr(self.plate_detector, 'enhanced_conf_threshold'):
+                self.plate_detector.enhanced_conf_threshold = 0.3  # Higher threshold untuk stability
+                self.plate_detector.use_secondary = False  # Disable secondary model untuk speed
+                self.plate_detector.use_tertiary = False  # Disable tertiary model untuk speed
+        except Exception as e:
+            self.logger.warning(f"Enhanced detector failed, fallback to Hybrid: {e}")
+            self.plate_detector = HybridPlateDetector(streaming_mode=True)  # Fallback
+            self.enhanced_mode = False
+
         self.yolo_detector = None
         self.yolo_enabled = enable_yolo
         self.tracking_manager = None
@@ -83,9 +117,20 @@ class HeadlessStreamManager:
             'tracking_enabled': False
         }
         
-        # Setup logging
-        self.logger = logging.getLogger(__name__)
+        # Logger already initialized above
         
+        # Initialize plate counter manager
+        self.logger.info("Initializing accurate plate counter system...")
+        counter_config = {
+            'similarity_threshold': 0.85,  # High threshold untuk avoid false matches
+            'spatial_proximity_distance': 60.0,  # Reasonable distance untuk same plate
+            'plate_expiry_time': 3.0,  # Quick expiry untuk responsive counting
+            'confirmation_threshold': 2,  # BALANCED: Need 2 hits untuk confirmation (responsive tapi accurate)
+            'confidence_filter_min': 0.45  # BALANCED FOR INDONESIA: Accept medium-low confidence tapi filter noise
+        }
+        self.plate_counter = create_plate_counter_manager(counter_config)
+        self.logger.info("✅ Accurate plate counter initialized")
+
         # Initialize tracking manager
         if self.tracking_enabled:
             self.logger.info("Initializing tracking system...")
@@ -95,7 +140,7 @@ class HeadlessStreamManager:
                 'min_hits': TrackingConfig.MIN_HITS_FOR_CONFIRMATION,
                 'iou_threshold': TrackingConfig.IOU_THRESHOLD
             }
-            
+
             self.tracking_manager = TrackingManager(
                 tracking_config=tracking_config,
                 plate_confirmation_threshold=TrackingConfig.PLATE_CONFIRMATION_THRESHOLD,
@@ -251,22 +296,117 @@ class HeadlessStreamManager:
                 object_detections = []
                 if self.is_yolo_enabled():
                     # Use sequential detection if enabled, otherwise normal detection
+                    # FORCE vehicles_only=True untuk prevent lag dari person detection
                     if hasattr(self.yolo_detector, 'sequential_mode') and self.yolo_detector.sequential_mode:
-                        object_detections = self.yolo_detector.detect_objects_sequential(frame, vehicles_only=False)
+                        object_detections = self.yolo_detector.detect_objects_sequential(frame, vehicles_only=True)
                     else:
-                        object_detections = self.yolo_detector.detect_objects(frame, vehicles_only=False)
+                        object_detections = self.yolo_detector.detect_objects(frame, vehicles_only=True)
                 
-                # Detect plates
-                plate_detections = self.plate_detector.detect_plates(frame)
+                # Detect plates dengan Enhanced Detection + Error Handling
+                plate_detections = []
+                enhanced_results = []
+
+                if self.enhanced_mode:
+                    try:
+                        # Use enhanced detection method
+                        enhanced_results = self.plate_detector.process_frame_enhanced(frame)
+
+                        # Convert enhanced results ke format yang compatible dengan tracking
+                        for result in enhanced_results:
+                            # Create PlateDetection object dari enhanced result
+                            # Extract region untuk processed_image
+                            try:
+                                x, y, w, h = result['plate_bbox']
+                                plate_region = frame[y:y+h, x:x+w] if len(frame.shape) == 3 else frame[y:y+h, x:x+w]
+                                if plate_region.size == 0:  # Empty region fallback
+                                    plate_region = np.zeros((50, 150, 3), dtype=np.uint8)
+                            except:
+                                plate_region = np.zeros((50, 150, 3), dtype=np.uint8)
+
+                            detection = PlateDetection(
+                                text=result['plate_text'],
+                                confidence=result['confidence'],
+                                bbox=result['plate_bbox'],
+                                processed_image=plate_region,
+                                timestamp=time.time(),
+                                vehicle_type=result['vehicle_type'],
+                                detection_method=result['detection_method']
+                            )
+                            plate_detections.append(detection)
+
+                    except Exception as e:
+                        self.logger.warning(f"Enhanced detection failed for frame, fallback to hybrid: {e}")
+                        # Emergency fallback ke hybrid untuk frame ini
+                        try:
+                            if hasattr(self.plate_detector, 'detect_plates'):
+                                plate_detections = self.plate_detector.detect_plates(frame)
+                            else:
+                                # Create backup hybrid detector
+                                backup_detector = HybridPlateDetector(streaming_mode=True)
+                                plate_detections = backup_detector.detect_plates(frame)
+                        except Exception as e2:
+                            self.logger.error(f"Backup detection also failed: {e2}")
+                            plate_detections = []
+
+                else:
+                    # Fallback ke hybrid detection
+                    try:
+                        plate_detections = self.plate_detector.detect_plates(frame)
+                    except Exception as e:
+                        self.logger.error(f"Hybrid detection failed: {e}")
+                        plate_detections = []
                 
+                # Process plates dengan accurate counter system
+                # Integrate dengan PlateCounterManager untuk accurate counting
+                for detection in plate_detections:
+                    try:
+                        # Extract vehicle type dari tracking atau detection method
+                        vehicle_type = getattr(detection, 'vehicle_type', 'unknown')
+
+                        # Add detection ke counter manager
+                        plate_id = self.plate_counter.add_or_update_detection(
+                            detection_text=detection.text,
+                            detection_bbox=detection.bbox,
+                            confidence=detection.confidence,
+                            tracking_id=None,  # Will be updated setelah tracking
+                            vehicle_type=vehicle_type
+                        )
+
+                        # Set plate_id untuk reference
+                        if plate_id:
+                            detection.plate_counter_id = plate_id
+
+                    except Exception as e:
+                        self.logger.error(f"Error adding detection to counter: {e}")
+
                 # Process dengan tracking system jika enabled
                 tracked_objects = []
                 tracked_plates = []
-                
+
                 if self.tracking_enabled and self.tracking_manager:
                     tracked_objects, tracked_plates = self.tracking_manager.process_frame(
                         object_detections, plate_detections
                     )
+
+                    # Update counter dengan tracking information
+                    for tracked_plate in tracked_plates:
+                        try:
+                            # Find corresponding detection dengan tracking info
+                            for detection in plate_detections:
+                                if (hasattr(detection, 'plate_counter_id') and
+                                    detection.text == tracked_plate.text):
+
+                                    # Update dengan tracking ID
+                                    self.plate_counter.add_or_update_detection(
+                                        detection_text=tracked_plate.text,
+                                        detection_bbox=tracked_plate.bbox,
+                                        confidence=tracked_plate.confidence,
+                                        tracking_id=tracked_plate.id,
+                                        vehicle_type=getattr(tracked_plate, 'vehicle_type', 'unknown')
+                                    )
+                                    break
+                        except Exception as e:
+                            self.logger.error(f"Error updating counter with tracking: {e}")
                 
                 # Prepare annotated frame
                 annotated_frame = frame.copy()
@@ -289,10 +429,49 @@ class HeadlessStreamManager:
                             annotated_frame, object_detections, show_confidence=True
                         )
                     
-                    # Draw plate detections on top
-                    annotated_frame = self.plate_detector.draw_detections(
-                        annotated_frame, plate_detections, show_roi=True
-                    )
+                    # Draw plate detections dengan enhanced style + Error Handling
+                    try:
+                        if self.enhanced_mode and enhanced_results:
+                            # Use enhanced results directly jika ada
+                            annotated_frame = self.plate_detector.draw_enhanced_results(
+                                annotated_frame, enhanced_results
+                            )
+                        elif self.enhanced_mode and plate_detections:
+                            # Convert back to enhanced results format untuk drawing
+                            enhanced_results_for_draw = []
+                            for detection in plate_detections:
+                                enhanced_result = {
+                                    'vehicle_type': getattr(detection, 'vehicle_type', 'unknown'),
+                                    'vehicle_bbox': (0, 0, 0, 0),  # Will be filled by enhanced detector
+                                    'plate_text': detection.text,
+                                    'plate_bbox': detection.bbox,
+                                    'confidence': detection.confidence,
+                                    'detection_method': getattr(detection, 'detection_method', 'enhanced'),
+                                    'ocr_config': 'enhanced_streaming',
+                                    'enhancement_applied': 'streaming_optimized',
+                                    'processing_time': processing_time
+                                }
+                                enhanced_results_for_draw.append(enhanced_result)
+
+                            # Use enhanced drawing method
+                            annotated_frame = self.plate_detector.draw_enhanced_results(
+                                annotated_frame, enhanced_results_for_draw
+                            )
+                        else:
+                            # Fallback ke standard drawing
+                            if hasattr(self.plate_detector, 'draw_detections') and plate_detections:
+                                annotated_frame = self.plate_detector.draw_detections(
+                                    annotated_frame, plate_detections, show_roi=True
+                                )
+
+                    except Exception as e:
+                        self.logger.warning(f"Enhanced drawing failed, using basic overlay: {e}")
+                        # Basic drawing fallback
+                        for detection in plate_detections:
+                            x, y, w, h = detection.bbox
+                            cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
+                            cv2.putText(annotated_frame, f"{detection.text} ({detection.confidence:.2f})",
+                                      (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
                 
                 # Calculate processing time
                 processing_time = time.time() - process_start
@@ -310,25 +489,43 @@ class HeadlessStreamManager:
                 # Count vehicles in object detections
                 vehicle_count = sum(1 for obj in object_detections if obj.is_vehicle)
                 
+                # Get accurate counts dari PlateCounterManager
+                accurate_counts = self.plate_counter.get_current_counts()
+
                 with self.lock:
                     # Update detection events counter (akumulatif untuk historical tracking)
                     if len(object_detections) > 0:
                         self.stats['total_detection_events'] += 1
-                    
+
                     # Use tracking results untuk statistics jika available
                     current_vehicles = len([obj for obj in tracked_objects if obj.is_vehicle]) if tracked_objects else vehicle_count
-                    confirmed_plates = len([plate for plate in tracked_plates if plate.confirmed]) if tracked_plates else 0
-                    
+                    confirmed_plates_tracking = len([plate for plate in tracked_plates if plate.confirmed]) if tracked_plates else 0
+
+                    # Update dengan accurate counter statistics (FIXED THE OVER-COUNTING PROBLEM!)
                     self.stats.update({
                         'total_frames': frame_count,
-                        'total_detections': self.stats['total_detections'] + len(plate_detections),  # Plat nomor (akumulatif)
+                        # FIXED: Use accurate total unique plates dari PlateCounterManager
+                        'total_detections': accurate_counts['total_unique_plates_session'],  # Total plat unik yang terdeteksi dalam session (bukan akumulasi berlebihan!)
+                        'current_unique_plates': accurate_counts['current_visible_plates'],  # Plat yang saat ini terlihat
+                        'total_unique_plates_session': accurate_counts['total_unique_plates_session'],  # Total plat unik dalam session
+                        'confirmed_unique_plates': accurate_counts['confirmed_visible_plates'],  # Plat yang sudah dikonfirmasi
+                        'raw_detections_processed': accurate_counts['raw_detections_processed'],  # Total raw detections untuk debugging
+                        'false_positives_filtered': accurate_counts['false_positives_filtered'],  # False positives yang difilter
+                        'duplicates_filtered': accurate_counts['duplicates_filtered'],  # Duplicates yang difilter
                         'current_objects': len(tracked_objects) if tracked_objects else len(object_detections),
                         'current_vehicles': current_vehicles,
-                        'confirmed_plates': confirmed_plates,
+                        'confirmed_plates': max(confirmed_plates_tracking, accurate_counts['confirmed_visible_plates']),  # Use the higher count
                         'fps': round(current_fps, 1),
                         'avg_processing_time': round(avg_processing_time, 3),
                         'last_detection_time': time.time() if plate_detections else self.stats['last_detection_time']
                     })
+
+                    # Log accurate counts untuk debugging (dapat di-disable untuk production)
+                    if frame_count % 30 == 0:  # Log every 30 frames
+                        self.logger.debug(f"Accurate counts: Current={accurate_counts['current_visible_plates']}, "
+                                        f"Total session={accurate_counts['total_unique_plates_session']}, "
+                                        f"Confirmed={accurate_counts['confirmed_visible_plates']}, "
+                                        f"Raw processed={accurate_counts['raw_detections_processed']}")
                 
                 # Convert frame to base64
                 frame_base64 = self._frame_to_base64(annotated_frame)
@@ -372,11 +569,20 @@ class HeadlessStreamManager:
                     confirmed_tracked_plates = [plate for plate in tracked_plates if plate.confirmed]
                     for tracked_plate in confirmed_tracked_plates:
                         # Create PlateDetection object dari TrackedPlate
+                        # Create dummy processed_image
+                        try:
+                            x, y, w, h = tracked_plate.bbox
+                            plate_region = frame[y:y+h, x:x+w] if len(frame.shape) == 3 else frame[y:y+h, x:x+w]
+                            if plate_region.size == 0:
+                                plate_region = np.zeros((50, 150, 3), dtype=np.uint8)
+                        except:
+                            plate_region = np.zeros((50, 150, 3), dtype=np.uint8)
+
                         detection = PlateDetection(
                             text=tracked_plate.text,
                             confidence=tracked_plate.confidence,
                             bbox=tracked_plate.bbox,
-                            processed_image=None,  # Could be enhanced later
+                            processed_image=plate_region,
                             timestamp=time.time()
                         )
                         final_detections.append(detection)
@@ -463,10 +669,27 @@ class HeadlessStreamManager:
             tracking_stats = self.tracking_manager.get_statistics()
             for key, value in tracking_stats.items():
                 stats[f'tracking_{key}'] = value
-        
+
+        # Add accurate plate counter statistics (IMPORTANT: This fixes the counting problem!)
+        if hasattr(self, 'plate_counter') and self.plate_counter:
+            counter_stats = self.plate_counter.get_statistics()
+
+            # Add counter stats dengan prefix untuk clarity
+            for key, value in counter_stats.items():
+                if key not in ['configuration']:  # Skip configuration details
+                    stats[f'counter_{key}'] = value
+
+            # Add summary stats untuk easy access
+            stats['plates_summary'] = {
+                'current_visible': counter_stats.get('current_visible_plates', 0),
+                'total_session': counter_stats.get('total_unique_plates_session', 0),
+                'confirmed': counter_stats.get('confirmed_visible_plates', 0),
+                'accuracy_rate': counter_stats.get('accuracy_metrics', {}).get('unique_plate_extraction_rate_percent', 0)
+            }
+
         # Add uptime
         stats['uptime'] = round(time.time() - stats['start_time'], 1)
-        
+
         return stats
     
     def is_running(self) -> bool:

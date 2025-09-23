@@ -170,13 +170,27 @@ class YOLOObjectDetector:
             max_detections = min(25, self.max_detections * 2) if self.crowded_scene_mode else self.max_detections
 
             # Run YOLOv8 detection with adaptive parameters
-            results = self.model(
-                frame,
-                conf=conf_threshold,
-                iou=iou_threshold,
-                max_det=max_detections,
-                verbose=False
-            )
+            # When vehicles_only=True, only detect vehicle classes to prevent person detection lag
+            if vehicles_only:
+                # Only detect vehicle classes: car(2), motorcycle(3), bus(5), truck(7)
+                vehicle_class_ids = list(self.vehicle_classes.keys())  # [2, 3, 5, 7]
+                results = self.model(
+                    frame,
+                    conf=conf_threshold,
+                    iou=iou_threshold,
+                    max_det=max_detections,
+                    classes=vehicle_class_ids,  # Exclude person(0) and other non-vehicle classes
+                    verbose=False
+                )
+            else:
+                # Detect all classes when vehicles_only=False
+                results = self.model(
+                    frame,
+                    conf=conf_threshold,
+                    iou=iou_threshold,
+                    max_det=max_detections,
+                    verbose=False
+                )
             
             detections = []
             
@@ -201,7 +215,8 @@ class YOLOObjectDetector:
                             if confidence < min_confidence:
                                 continue
 
-                        # Filter by vehicles if requested
+                        # Note: vehicles_only filtering now handled at model level via classes parameter
+                        # This post-processing filter is kept as safety backup for edge cases
                         if vehicles_only and not is_vehicle:
                             continue
 
@@ -780,11 +795,13 @@ class YOLOObjectDetector:
 
                 # Adaptive confidence untuk different scales - smaller scales need higher confidence
                 conf_threshold = self.confidence * (1.2 + 0.3 * (1 - scale))
+                # Only detect motorcycles (class 3) for crowding detection to prevent person detection lag
                 quick_results = self.model(
                     scaled_frame,
                     conf=conf_threshold,
                     iou=0.6,  # Higher IoU untuk avoid false crowding
                     max_det=int(30 / scale),  # More detections for smaller scales
+                    classes=[3],  # Only motorcycle class to avoid lag from person detection
                     verbose=False
                 )
 
