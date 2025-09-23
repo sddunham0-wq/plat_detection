@@ -1,0 +1,1796 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎥 Live CCTV Plate Detection</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Socket.IO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    
+    <style>
+        :root {
+            --bg-primary: #0a0a0a;
+            --bg-secondary: #111111;
+            --bg-tertiary: #1a1a1a;
+            --bg-glass: rgba(255, 255, 255, 0.06);
+            --bg-glass-hover: rgba(255, 255, 255, 0.1);
+            --accent-primary: #14b8a6;
+            --accent-secondary: #8b5cf6;
+            --accent-tertiary: #f59e0b;
+            --accent-success: #22c55e;
+            --accent-warning: #f59e0b;
+            --accent-danger: #ef4444;
+            --text-primary: #ffffff;
+            --text-secondary: #e4e4e7;
+            --text-muted: #a1a1aa;
+            --text-dim: #71717a;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-hover: rgba(255, 255, 255, 0.15);
+            --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.3);
+            --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.4);
+            --blur-amount: 16px;
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-xl: 20px;
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: radial-gradient(ellipse at top, var(--bg-secondary) 0%, var(--bg-primary) 70%);
+            background-attachment: fixed;
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+            line-height: 1.6;
+            font-weight: 400;
+        }
+
+        /* Glassmorphism Components */
+        .glass {
+            background: var(--bg-glass);
+            backdrop-filter: blur(var(--blur-amount));
+            -webkit-backdrop-filter: blur(var(--blur-amount));
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-glass);
+            transition: var(--transition);
+        }
+
+        .glass:hover {
+            background: var(--bg-glass-hover);
+            border-color: var(--border-hover);
+            transform: translateY(-2px);
+        }
+
+        .card-elegant {
+            background: var(--bg-glass);
+            backdrop-filter: blur(var(--blur-amount));
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-card);
+            transition: var(--transition);
+            overflow: hidden;
+        }
+
+        .card-elegant:hover {
+            background: var(--bg-glass-hover);
+            border-color: var(--border-hover);
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Navigation */
+        .navbar-elegant {
+            background: var(--bg-glass);
+            backdrop-filter: blur(24px);
+            border-bottom: 1px solid var(--border-color);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            padding: 1rem 0;
+        }
+
+        .navbar-brand-elegant {
+            font-weight: 700;
+            font-size: 1.25rem;
+            background: linear-gradient(45deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-decoration: none;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            position: relative;
+        }
+
+        .status-indicator::before {
+            content: '';
+            position: absolute;
+            top: -4px;
+            left: -4px;
+            right: -4px;
+            bottom: -4px;
+            border-radius: 50%;
+            background: inherit;
+            opacity: 0.3;
+            animation: pulse 2s infinite;
+        }
+
+        .status-running {
+            background: var(--accent-success);
+            box-shadow: 0 0 12px var(--accent-success);
+        }
+
+        .status-stopped {
+            background: var(--accent-danger);
+            box-shadow: 0 0 12px var(--accent-danger);
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.3; }
+            50% { transform: scale(1.5); opacity: 0.1; }
+        }
+
+        /* Video Section */
+        .video-section {
+            position: relative;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-xl);
+            overflow: hidden;
+            box-shadow: var(--shadow-card);
+            border: 1px solid var(--border-color);
+        }
+
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            aspect-ratio: 16/9;
+        }
+
+        .video-stream {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .video-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.7));
+            padding: 1.5rem;
+            color: white;
+        }
+
+        .video-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 1rem;
+        }
+
+        .video-status {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--bg-glass);
+            backdrop-filter: blur(var(--blur-amount));
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 2rem;
+            text-align: center;
+            z-index: 10;
+        }
+
+        /* Control Panel */
+        .control-panel {
+            background: var(--bg-glass);
+            backdrop-filter: blur(var(--blur-amount));
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .form-control-elegant {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            padding: 0.75rem 1rem;
+            transition: var(--transition);
+        }
+
+        .form-control-elegant:focus {
+            background: var(--bg-glass);
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.1);
+            color: var(--text-primary);
+        }
+
+        /* Buttons */
+        .btn-elegant {
+            padding: 0.75rem 1.5rem;
+            border-radius: var(--radius-sm);
+            font-weight: 500;
+            font-size: 0.875rem;
+            border: none;
+            transition: var(--transition);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-elegant::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent);
+            transform: translateX(-100%);
+            transition: transform 0.6s;
+        }
+
+        .btn-elegant:hover::before {
+            transform: translateX(100%);
+        }
+
+        .btn-primary-elegant {
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            color: white;
+        }
+
+        .btn-success-elegant {
+            background: linear-gradient(135deg, var(--accent-success), var(--accent-primary));
+            color: white;
+        }
+
+        .btn-danger-elegant {
+            background: linear-gradient(135deg, var(--accent-danger), #dc2626);
+            color: white;
+        }
+
+        .btn-secondary-elegant {
+            background: var(--bg-glass);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+
+        /* Statistics Cards */
+        .stat-card {
+            background: var(--bg-glass);
+            backdrop-filter: blur(var(--blur-amount));
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 1.5rem;
+            text-align: center;
+            transition: var(--transition);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 0.5rem 0;
+        }
+
+        .stat-label {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .stat-icon {
+            font-size: 2rem;
+            background: linear-gradient(45deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Detection Feed */
+        .detection-feed {
+            max-height: 500px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+
+        .detection-feed::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .detection-feed::-webkit-scrollbar-track {
+            background: var(--bg-tertiary);
+            border-radius: 2px;
+        }
+
+        .detection-feed::-webkit-scrollbar-thumb {
+            background: var(--accent-primary);
+            border-radius: 2px;
+        }
+
+        .detection-item {
+            background: var(--bg-glass);
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--accent-success);
+            border-radius: var(--radius-sm);
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            transition: var(--transition);
+            animation: slideInRight 0.4s ease-out;
+        }
+
+        .detection-item:hover {
+            background: var(--bg-glass-hover);
+            border-color: var(--border-hover);
+            transform: translateX(4px);
+        }
+
+        @keyframes slideInRight {
+            from { 
+                opacity: 0; 
+                transform: translateX(20px); 
+            }
+            to { 
+                opacity: 1; 
+                transform: translateX(0); 
+            }
+        }
+
+        .detection-plate {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.25rem;
+        }
+
+        .detection-confidence {
+            display: inline-block;
+            background: linear-gradient(45deg, var(--accent-success), var(--accent-primary));
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .detection-time {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        /* Progress Bars */
+        .progress-elegant {
+            height: 8px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar-elegant {
+            background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.6s ease;
+        }
+
+        /* Toast Notifications */
+        .toast-elegant {
+            background: var(--bg-glass);
+            backdrop-filter: blur(var(--blur-amount));
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            color: var(--text-primary);
+        }
+
+        .toast-header-elegant {
+            background: linear-gradient(135deg, var(--accent-success), var(--accent-primary));
+            color: white;
+            border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .container-fluid {
+                padding: 1rem;
+            }
+            
+            .control-panel {
+                padding: 1rem;
+            }
+            
+            .video-section {
+                margin-bottom: 2rem;
+            }
+            
+            .stat-card {
+                margin-bottom: 1rem;
+            }
+        }
+
+        /* Loading Animation */
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--bg-tertiary);
+            border-top: 3px solid var(--accent-primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Floating Elements */
+        .floating {
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+
+        /* Multi-Camera Styles */
+        .camera-view {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            height: 240px;
+            position: relative;
+        }
+
+        .camera-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .camera-stream {
+            height: calc(100% - 40px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-primary);
+        }
+
+        .camera-placeholder {
+            text-align: center;
+            color: var(--text-tertiary);
+        }
+
+        .camera-placeholder i {
+            font-size: 2rem;
+            opacity: 0.5;
+        }
+
+        .camera-stream img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .camera-list-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            margin-bottom: 0.5rem;
+            background: var(--bg-tertiary);
+        }
+
+        .camera-list-item.selected {
+            border-color: var(--accent-primary);
+            background: rgba(20, 184, 166, 0.1);
+        }
+
+        .camera-info {
+            flex: 1;
+        }
+
+        .camera-name {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .camera-details {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
+        .camera-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn-camera {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            border-radius: var(--radius-sm);
+        }
+
+        /* Multi-camera grid responsive */
+        @media (max-width: 768px) {
+            .camera-view {
+                height: 180px;
+                margin-bottom: 1rem;
+            }
+            
+            #multiCameraGrid .col-md-6 {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-elegant fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand-elegant" href="#">
+                <i class="bi bi-camera-video me-2"></i>
+                Live CCTV Plate Detection
+            </a>
+            <div class="d-flex align-items-center">
+                <span class="status-indicator" id="statusIndicator"></span>
+                <span id="statusText" class="text-muted">Connecting...</span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid" style="margin-top: 80px;">
+        <div class="row g-4">
+            <!-- Video & Controls Column -->
+            <div class="col-lg-8">
+                <!-- Control Panel -->
+                <div class="control-panel">
+                    <h6 class="mb-3 text-muted">
+                        <i class="bi bi-gear me-2"></i>Stream Configuration
+                    </h6>
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-8">
+                            <label class="form-label text-muted small">Video Source</label>
+                            <input type="text" 
+                                   class="form-control form-control-elegant" 
+                                   id="sourceInput" 
+                                   placeholder="RTSP URL atau webcam index (0)"
+                                   value="rtsp://admin:H4nd4l9165!@192.168.1.203:5503/cam/realmonitor?channel=1&amp;subtype=0">
+                        </div>
+                        <div class="col-md-4">
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-success-elegant btn-elegant flex-fill" id="startBtn">
+                                    <i class="bi bi-play-fill me-1"></i> Start
+                                </button>
+                                <button class="btn btn-danger-elegant btn-elegant flex-fill" id="stopBtn" disabled>
+                                    <i class="bi bi-stop-fill me-1"></i> Stop
+                                </button>
+                                <button class="btn btn-secondary-elegant btn-elegant" id="screenshotBtn" title="Screenshot">
+                                    <i class="bi bi-camera"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Multi-Camera Control Panel -->
+                <div class="control-panel" id="multiCameraPanel" style="display: none;">
+                    <h6 class="mb-3 text-muted">
+                        <i class="bi bi-cameras me-2"></i>Multi-Camera Configuration
+                    </h6>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <button class="btn btn-info-elegant btn-elegant w-100" id="discoverCamerasBtn">
+                                <i class="bi bi-search me-1"></i> Discover Cameras
+                            </button>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-success-elegant btn-elegant w-100" id="startMultiBtn" disabled>
+                                <i class="bi bi-play-fill me-1"></i> Start Multi
+                            </button>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-danger-elegant btn-elegant w-100" id="stopMultiBtn" disabled>
+                                <i class="bi bi-stop-fill me-1"></i> Stop Multi
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Available Cameras List -->
+                    <div id="availableCameras" style="display: none;">
+                        <h6 class="small text-muted mb-2">Available Cameras:</h6>
+                        <div id="camerasList" class="mb-3">
+                            <!-- Dynamic camera list will be populated here -->
+                        </div>
+                    </div>
+                    
+                    <!-- Mode Toggle -->
+                    <div class="d-flex align-items-center justify-content-between">
+                        <label class="form-label text-muted small mb-0">Camera Mode:</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="multiCameraToggle">
+                            <label class="form-check-label text-muted" for="multiCameraToggle">
+                                <span id="cameraModeLabel">Single Camera</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Camera Grid for Multi-Camera View -->
+                <div id="multiCameraGrid" class="video-section" style="display: none;">
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <div class="camera-view">
+                                <div class="camera-header">
+                                    <small class="text-muted">Camera 1</small>
+                                    <span class="badge bg-secondary">Offline</span>
+                                </div>
+                                <div class="camera-stream" id="camera1">
+                                    <div class="camera-placeholder">
+                                        <i class="bi bi-camera-video text-muted"></i>
+                                        <p class="small text-muted mt-2">No Camera</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="camera-view">
+                                <div class="camera-header">
+                                    <small class="text-muted">Camera 2</small>
+                                    <span class="badge bg-secondary">Offline</span>
+                                </div>
+                                <div class="camera-stream" id="camera2">
+                                    <div class="camera-placeholder">
+                                        <i class="bi bi-camera-video text-muted"></i>
+                                        <p class="small text-muted mt-2">No Camera</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="camera-view">
+                                <div class="camera-header">
+                                    <small class="text-muted">Camera 3</small>
+                                    <span class="badge bg-secondary">Offline</span>
+                                </div>
+                                <div class="camera-stream" id="camera3">
+                                    <div class="camera-placeholder">
+                                        <i class="bi bi-camera-video text-muted"></i>
+                                        <p class="small text-muted mt-2">No Camera</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="camera-view">
+                                <div class="camera-header">
+                                    <small class="text-muted">Camera 4</small>
+                                    <span class="badge bg-secondary">Offline</span>
+                                </div>
+                                <div class="camera-stream" id="camera4">
+                                    <div class="camera-placeholder">
+                                        <i class="bi bi-camera-video text-muted"></i>
+                                        <p class="small text-muted mt-2">No Camera</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Video Stream Section -->
+                <div class="video-section" id="singleCameraView">
+                    <div class="video-container">
+                        <img src="/video_feed" 
+                             class="video-stream" 
+                             id="videoStream" 
+                             alt="Live Video Stream"
+                             onerror="handleVideoError(this)"
+                             onload="handleVideoLoad(this)">
+                        <div id="videoStatus" class="video-status" style="display: none;">
+                            <div class="text-center">
+                                <i class="bi bi-exclamation-triangle text-warning fs-1 mb-3"></i>
+                                <h5>Video Feed Error</h5>
+                                <p class="text-muted mb-3">Check connection or reload page</p>
+                                <button class="btn btn-primary-elegant btn-elegant" onclick="reloadVideo()">
+                                    <i class="bi bi-arrow-clockwise me-1"></i> Retry
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Video Overlay Info -->
+                        <div class="video-overlay">
+                            <div class="video-controls">
+                                <div>
+                                    <span class="badge bg-dark me-2">Frame: <span id="frameId">-</span></span>
+                                    <span class="badge bg-dark me-2">FPS: <span id="currentFps">-</span></span>
+                                </div>
+                                <div>
+                                    <span class="badge bg-primary">Detections: <span id="currentDetections">-</span></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Statistics & Detection Column -->
+            <div class="col-lg-4">
+                <!-- Statistics Grid -->
+                <div class="row g-3 mb-4">
+                    <div class="col-6">
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="bi bi-camera-video"></i>
+                            </div>
+                            <div class="stat-value" id="totalFrames">0</div>
+                            <div class="stat-label">Total Frames</div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="bi bi-search"></i>
+                            </div>
+                            <div class="stat-value text-success" id="totalDetections">0</div>
+                            <div class="stat-label">Detections</div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="bi bi-speedometer2"></i>
+                            </div>
+                            <div class="stat-value" id="successRate">0%</div>
+                            <div class="stat-label">Success Rate</div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="bi bi-clock"></i>
+                            </div>
+                            <div class="stat-value" id="uptime">0s</div>
+                            <div class="stat-label">Uptime</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Object Detection Stats -->
+                <div class="row g-3 mb-4" id="objectStatsRow" style="display: none;">
+                    <div class="col-12">
+                        <div class="card-elegant">
+                            <div class="p-3 border-bottom border-dark">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h6 class="text-muted mb-0">
+                                        <i class="bi bi-eye me-2"></i>Object Detection
+                                    </h6>
+                                    <div class="d-flex gap-3">
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="yoloToggle">
+                                            <label class="form-check-label text-muted small" for="yoloToggle">
+                                                Enable YOLO
+                                            </label>
+                                        </div>
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="sequentialToggle">
+                                            <label class="form-check-label text-muted small" for="sequentialToggle">
+                                                Sequential
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="p-3">
+                                <div class="row g-3">
+                                    <div class="col-4">
+                                        <div class="text-center">
+                                            <div class="stat-value text-primary" id="currentObjects">0</div>
+                                            <div class="stat-label">Current Objects</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="text-center">
+                                            <div class="stat-value text-success" id="currentVehicles">0</div>
+                                            <div class="stat-label">Current Vehicles</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="text-center">
+                                            <div class="stat-value text-warning" id="yoloFps">0</div>
+                                            <div class="stat-label">Detection FPS</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Sequential Mode Info -->
+                                <div id="sequentialInfo" style="display: none;">
+                                    <hr class="border-dark my-3">
+                                    <div class="row g-3">
+                                        <div class="col-6">
+                                            <div class="text-center">
+                                                <div class="stat-value text-info" id="currentZone">1/9</div>
+                                                <div class="stat-label">Active Zone</div>
+                                            </div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="text-center">
+                                                <div class="stat-value text-info" id="zoneTimer">2.0s</div>
+                                                <div class="stat-label">Time Left</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-3">
+                                        <div class="progress-elegant">
+                                            <div class="progress-bar-elegant" id="zoneProgress" style="width: 0%"></div>
+                                        </div>
+                                        <small class="text-muted">Zone cycle progress</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Success Rate Progress -->
+                <div class="card-elegant mb-4">
+                    <div class="p-3">
+                        <h6 class="text-muted mb-3">
+                            <i class="bi bi-graph-up me-2"></i>OCR Performance
+                        </h6>
+                        <div class="progress-elegant mb-2">
+                            <div class="progress-bar-elegant" 
+                                 id="successRateBar" 
+                                 style="width: 0%"></div>
+                        </div>
+                        <small class="text-muted">Processing accuracy in real-time</small>
+                    </div>
+                </div>
+
+                <!-- Live Detections -->
+                <div class="card-elegant">
+                    <div class="p-3 border-bottom border-dark">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h6 class="text-muted mb-0">
+                                <i class="bi bi-list-ul me-2"></i>Live Detections
+                            </h6>
+                            <span class="badge bg-success" id="detectionCount">0</span>
+                        </div>
+                    </div>
+                    <div class="p-3">
+                        <div class="detection-feed" id="detectionsList">
+                            <div class="text-center text-muted py-5">
+                                <div class="loading-spinner mx-auto mb-3 floating"></div>
+                                <p>Waiting for detections...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Detection Toast -->
+    <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1100;">
+        <div id="detectionToast" class="toast toast-elegant" role="alert">
+            <div class="toast-header toast-header-elegant">
+                <i class="bi bi-check-circle me-2"></i>
+                <strong class="me-auto">Plate Detected!</strong>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="toastBody">
+                <!-- Detection details will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Initialize Socket.IO
+        const socket = io();
+        
+        // UI Elements
+        const statusIndicator = document.getElementById('statusIndicator');
+        const statusText = document.getElementById('statusText');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const screenshotBtn = document.getElementById('screenshotBtn');
+        const sourceInput = document.getElementById('sourceInput');
+        const detectionsList = document.getElementById('detectionsList');
+        const detectionCount = document.getElementById('detectionCount');
+        
+        // Stats elements
+        const frameId = document.getElementById('frameId');
+        const currentFps = document.getElementById('currentFps');
+        const currentDetections = document.getElementById('currentDetections');
+        const totalFrames = document.getElementById('totalFrames');
+        const totalDetections = document.getElementById('totalDetections');
+        const successRate = document.getElementById('successRate');
+        const successRateBar = document.getElementById('successRateBar');
+        const uptime = document.getElementById('uptime');
+        
+        // Object detection elements
+        const objectStatsRow = document.getElementById('objectStatsRow');
+        const yoloToggle = document.getElementById('yoloToggle');
+        const sequentialToggle = document.getElementById('sequentialToggle');
+        const currentObjects = document.getElementById('currentObjects');
+        const currentVehicles = document.getElementById('currentVehicles');
+        const yoloFps = document.getElementById('yoloFps');
+        
+        // Sequential mode elements
+        const sequentialInfo = document.getElementById('sequentialInfo');
+        const currentZone = document.getElementById('currentZone');
+        const zoneTimer = document.getElementById('zoneTimer');
+        const zoneProgress = document.getElementById('zoneProgress');
+        
+        let detectionHistory = [];
+        let objectDetectionEnabled = false;
+        let sequentialModeEnabled = false;
+        
+        // Multi-camera elements
+        const multiCameraToggle = document.getElementById('multiCameraToggle');
+        const cameraModeLabel = document.getElementById('cameraModeLabel');
+        const multiCameraPanel = document.getElementById('multiCameraPanel');
+        const multiCameraGrid = document.getElementById('multiCameraGrid');
+        const singleCameraView = document.getElementById('singleCameraView');
+        const discoverCamerasBtn = document.getElementById('discoverCamerasBtn');
+        const startMultiBtn = document.getElementById('startMultiBtn');
+        const stopMultiBtn = document.getElementById('stopMultiBtn');
+        const availableCameras = document.getElementById('availableCameras');
+        const camerasList = document.getElementById('camerasList');
+        
+        let multiCameraMode = false;
+        let discoveredCameras = [];
+        let selectedCameras = [];
+        let multiStreamRunning = false;
+        
+        // Socket event handlers
+        socket.on('connect', function() {
+            console.log('Connected to server');
+        });
+        
+        socket.on('stream_status', function(data) {
+            updateStreamStatus(data.running);
+        });
+        
+        socket.on('new_frame', function(data) {
+            updateFrameInfo(data);
+            updateObjectDetections(data);
+        });
+        
+        socket.on('new_detection', function(data) {
+            addDetections(data.detections);
+            showDetectionToast(data.detections);
+        });
+        
+        socket.on('stats_update', function(data) {
+            updateStatistics(data);
+            updateObjectStatistics(data);
+            
+            // Auto-enable YOLO jika baru tersedia
+            autoEnableYoloIfReady(data);
+        });
+        
+        // Button event handlers
+        startBtn.addEventListener('click', function() {
+            const source = sourceInput.value.trim();
+            if (!source) {
+                showAlert('Please enter a video source', 'warning');
+                return;
+            }
+            
+            // Show loading
+            startBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Starting...';
+            startBtn.disabled = true;
+            
+            fetch('/api/start_stream', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({source: source})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateStreamStatus(true);
+                } else {
+                    showAlert('Failed to start stream: ' + data.error, 'danger');
+                    resetStartButton();
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Network error', 'danger');
+                resetStartButton();
+            });
+        });
+        
+        stopBtn.addEventListener('click', function() {
+            fetch('/api/stop_stream', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateStreamStatus(false);
+                } else {
+                    showAlert('Failed to stop stream: ' + data.error, 'warning');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Network error', 'danger');
+            });
+        });
+        
+        screenshotBtn.addEventListener('click', function() {
+            // Check if stream is running
+            if (!statusIndicator.classList.contains('status-running')) {
+                showAlert('Stream must be running to take screenshot', 'warning');
+                return;
+            }
+            
+            // Show loading state
+            const originalIcon = screenshotBtn.innerHTML;
+            screenshotBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+            screenshotBtn.disabled = true;
+            
+            fetch('/api/screenshot', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(`📷 Screenshot saved: ${data.filename}`, 'success');
+                    console.log('Screenshot saved:', data);
+                } else {
+                    showAlert('Failed to take screenshot: ' + data.error, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Screenshot error:', error);
+                showAlert('Network error while taking screenshot', 'danger');
+            })
+            .finally(() => {
+                // Restore button state
+                screenshotBtn.innerHTML = originalIcon;
+                screenshotBtn.disabled = false;
+            });
+        });
+        
+        // YOLO toggle handler
+        yoloToggle.addEventListener('change', function() {
+            const enabled = yoloToggle.checked;
+            
+            fetch('/api/toggle_yolo', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({enabled: enabled})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    objectDetectionEnabled = enabled;
+                    const status = enabled ? 'enabled' : 'disabled';
+                    showAlert(`Object detection ${status}`, 'success');
+                } else {
+                    // Reset toggle on failure
+                    yoloToggle.checked = !enabled;
+                    showAlert('Failed to toggle object detection: ' + data.error, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error toggling YOLO:', error);
+                yoloToggle.checked = !enabled;
+                showAlert('Network error', 'danger');
+            });
+        });
+        
+        // Sequential toggle handler
+        sequentialToggle.addEventListener('change', function() {
+            const enabled = sequentialToggle.checked;
+            
+            // Check if YOLO is enabled first
+            if (enabled && !yoloToggle.checked) {
+                sequentialToggle.checked = false;
+                showAlert('Please enable YOLO detection first', 'warning');
+                return;
+            }
+            
+            fetch('/api/toggle_sequential', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    enabled: enabled,
+                    grid_zones: [3, 3],  // 3x3 grid
+                    cycle_time: 2.0      // 2 seconds per zone
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    sequentialModeEnabled = enabled;
+                    const status = enabled ? 'enabled' : 'disabled';
+                    showAlert(`🎯 Sequential detection ${status}`, 'success');
+                    
+                    // Show/hide sequential info
+                    if (enabled) {
+                        sequentialInfo.style.display = 'block';
+                        startSequentialInfoUpdates();
+                    } else {
+                        sequentialInfo.style.display = 'none';
+                        stopSequentialInfoUpdates();
+                    }
+                } else {
+                    // Reset toggle on failure
+                    sequentialToggle.checked = !enabled;
+                    showAlert('Failed to toggle sequential detection: ' + data.error, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error toggling sequential:', error);
+                sequentialToggle.checked = !enabled;
+                showAlert('Network error', 'danger');
+            });
+        });
+        
+        // Sequential info update
+        let sequentialUpdateInterval = null;
+        
+        function startSequentialInfoUpdates() {
+            if (sequentialUpdateInterval) return;
+            
+            sequentialUpdateInterval = setInterval(function() {
+                fetch('/api/sequential_info')
+                    .then(response => response.json())
+                    .then(data => {
+                        updateSequentialInfo(data);
+                    })
+                    .catch(error => {
+                        console.error('Sequential info error:', error);
+                    });
+            }, 500); // Update every 500ms for smooth progress
+        }
+        
+        function stopSequentialInfoUpdates() {
+            if (sequentialUpdateInterval) {
+                clearInterval(sequentialUpdateInterval);
+                sequentialUpdateInterval = null;
+            }
+        }
+        
+        function updateSequentialInfo(data) {
+            if (!data.sequential_mode) {
+                sequentialInfo.style.display = 'none';
+                return;
+            }
+            
+            // Update zone info
+            const zoneText = `${data.current_zone + 1}/${data.total_zones}`;
+            currentZone.textContent = zoneText;
+            
+            // Update timer
+            const timeLeft = data.time_remaining || 0;
+            zoneTimer.textContent = `${timeLeft.toFixed(1)}s`;
+            
+            // Update progress bar
+            const progress = (data.progress || 0) * 100;
+            zoneProgress.style.width = `${Math.min(progress, 100)}%`;
+        }
+        
+        // Video handling functions
+        function handleVideoError(img) {
+            console.error('Video feed error');
+            document.getElementById('videoStatus').style.display = 'block';
+            img.style.display = 'none';
+        }
+        
+        function handleVideoLoad(img) {
+            console.log('Video feed loaded');
+            document.getElementById('videoStatus').style.display = 'none';
+            img.style.display = 'block';
+        }
+        
+        function reloadVideo() {
+            const img = document.getElementById('videoStream');
+            const timestamp = new Date().getTime();
+            img.src = '/video_feed?t=' + timestamp;
+            document.getElementById('videoStatus').style.display = 'none';
+        }
+        
+        // Helper functions
+        function updateStreamStatus(isRunning) {
+            if (isRunning) {
+                statusIndicator.className = 'status-indicator status-running';
+                statusText.textContent = 'Stream Running';
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                resetStartButton();
+            } else {
+                statusIndicator.className = 'status-indicator status-stopped';
+                statusText.textContent = 'Stream Stopped';
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        }
+        
+        function resetStartButton() {
+            startBtn.innerHTML = '<i class="bi bi-play-fill me-1"></i> Start';
+            startBtn.disabled = false;
+        }
+        
+        function updateFrameInfo(data) {
+            frameId.textContent = data.frame_id;
+            currentFps.textContent = data.fps.toFixed(1);
+            currentDetections.textContent = data.detections.length;
+            
+            // Update object detection overlay info if available
+            if (data.object_detections && data.object_detections.length > 0) {
+                const vehicles = data.object_detections.filter(obj => obj.is_vehicle).length;
+                const objects = data.object_detections.length;
+                
+                // You could add this info to video overlay if desired
+                console.log(`Objects: ${objects}, Vehicles: ${vehicles}`);
+            }
+        }
+        
+        function updateObjectDetections(data) {
+            // Show object stats if YOLO is available
+            if (data.object_detections !== undefined) {
+                objectStatsRow.style.display = 'block';
+            }
+        }
+        
+        function updateStatistics(data) {
+            // Animate counter updates
+            animateCounter(totalFrames, data.total_frames || 0);
+            animateCounter(totalDetections, data.total_detections || 0);
+            
+            const rate = data.success_rate || 0;
+            successRate.textContent = rate.toFixed(1) + '%';
+            successRateBar.style.width = rate + '%';
+            
+            uptime.textContent = formatUptime(data.uptime || 0);
+        }
+        
+        function updateObjectStatistics(data) {
+            // Update current object detection stats (NOT accumulative)
+            if (data.current_objects !== undefined) {
+                animateCounter(currentObjects, data.current_objects || 0);
+            }
+            
+            if (data.current_vehicles !== undefined) {
+                animateCounter(currentVehicles, data.current_vehicles || 0);
+            }
+            
+            if (data.yolo_detection_fps !== undefined) {
+                yoloFps.textContent = (data.yolo_detection_fps || 0).toFixed(1);
+            }
+            
+            // Update YOLO toggle state
+            if (data.yolo_enabled !== undefined) {
+                yoloToggle.checked = data.yolo_enabled;
+                objectDetectionEnabled = data.yolo_enabled;
+                
+                // Show/hide object stats section
+                if (data.yolo_enabled) {
+                    objectStatsRow.style.display = 'block';
+                }
+            }
+        }
+        
+        function autoEnableYoloIfReady(data) {
+            // Auto-enable YOLO jika model sudah loaded tapi belum enabled
+            if (data.yolo_total_detections !== undefined && 
+                data.yolo_enabled === false && 
+                !objectDetectionEnabled &&
+                statusIndicator.classList.contains('status-running')) {
+                
+                console.log('🤖 YOLOv8 model ready, auto-enabling...');
+                
+                // Enable YOLO otomatis
+                fetch('/api/toggle_yolo', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({enabled: true})
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        objectDetectionEnabled = true;
+                        yoloToggle.checked = true;
+                        console.log('✅ Auto-enabled object detection');
+                        showAlert('🤖 Object detection auto-enabled!', 'success');
+                    }
+                })
+                .catch(error => {
+                    console.error('Auto-enable failed:', error);
+                });
+            }
+        }
+        
+        function animateCounter(element, targetValue) {
+            const currentValue = parseInt(element.textContent) || 0;
+            if (currentValue === targetValue) return;
+            
+            const duration = 1000;
+            const steps = 30;
+            const increment = (targetValue - currentValue) / steps;
+            let current = currentValue;
+            
+            const timer = setInterval(() => {
+                current += increment;
+                if ((increment > 0 && current >= targetValue) || 
+                    (increment < 0 && current <= targetValue)) {
+                    element.textContent = targetValue;
+                    clearInterval(timer);
+                } else {
+                    element.textContent = Math.round(current);
+                }
+            }, duration / steps);
+        }
+        
+        function addDetections(detections) {
+            detections.forEach(detection => {
+                detectionHistory.unshift(detection);
+                
+                const item = document.createElement('div');
+                item.className = 'detection-item';
+                item.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="detection-plate">${detection.text}</div>
+                            <span class="detection-confidence">${detection.confidence.toFixed(1)}%</span>
+                        </div>
+                        <div class="text-end">
+                            <div class="detection-time">
+                                ${new Date(detection.timestamp * 1000).toLocaleTimeString()}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // Clear placeholder if exists
+                if (detectionsList.querySelector('.text-center')) {
+                    detectionsList.innerHTML = '';
+                }
+                
+                detectionsList.insertBefore(item, detectionsList.firstChild);
+            });
+            
+            // Keep only last 20 detections
+            while (detectionsList.children.length > 20) {
+                detectionsList.removeChild(detectionsList.lastChild);
+            }
+            
+            // Update count with animation
+            animateCounter(detectionCount, detectionHistory.length);
+        }
+        
+        function showDetectionToast(detections) {
+            const toast = new bootstrap.Toast(document.getElementById('detectionToast'));
+            const toastBody = document.getElementById('toastBody');
+            
+            let content = '';
+            detections.forEach(detection => {
+                content += `<strong>${detection.text}</strong> <span class="badge bg-success">${detection.confidence.toFixed(1)}%</span><br>`;
+            });
+            
+            toastBody.innerHTML = content;
+            toast.show();
+        }
+        
+        function showAlert(message, type) {
+            // Create and show bootstrap alert
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.body.appendChild(alertDiv);
+            
+            // Auto remove after 5 seconds
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        }
+        
+        function formatUptime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            
+            if (hours > 0) {
+                return `${hours}h ${minutes}m`;
+            } else if (minutes > 0) {
+                return `${minutes}m ${secs}s`;
+            } else {
+                return `${secs}s`;
+            }
+        }
+        
+        // ================== MULTI-CAMERA FUNCTIONS ==================
+        
+        // Multi-camera mode toggle
+        multiCameraToggle.addEventListener('change', function() {
+            multiCameraMode = this.checked;
+            
+            if (multiCameraMode) {
+                cameraModeLabel.textContent = 'Multi Camera';
+                multiCameraPanel.style.display = 'block';
+                singleCameraView.style.display = 'none';
+                multiCameraGrid.style.display = 'block';
+            } else {
+                cameraModeLabel.textContent = 'Single Camera';
+                multiCameraPanel.style.display = 'none';
+                singleCameraView.style.display = 'block';
+                multiCameraGrid.style.display = 'none';
+            }
+        });
+        
+        // Discover cameras
+        discoverCamerasBtn.addEventListener('click', function() {
+            const originalText = discoverCamerasBtn.innerHTML;
+            discoverCamerasBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Discovering...';
+            discoverCamerasBtn.disabled = true;
+            
+            fetch('/api/cameras/discover', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    discoveredCameras = data.cameras;
+                    displayAvailableCameras(data.cameras);
+                    showAlert(`📷 Found ${data.total_available} available cameras`, 'success');
+                } else {
+                    showAlert('Failed to discover cameras: ' + data.error, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Camera discovery error:', error);
+                showAlert('Network error during camera discovery', 'danger');
+            })
+            .finally(() => {
+                discoverCamerasBtn.innerHTML = originalText;
+                discoverCamerasBtn.disabled = false;
+            });
+        });
+        
+        function displayAvailableCameras(cameras) {
+            camerasList.innerHTML = '';
+            
+            if (cameras.length === 0) {
+                camerasList.innerHTML = '<div class="text-muted text-center py-3">No cameras found</div>';
+                availableCameras.style.display = 'block';
+                return;
+            }
+            
+            cameras.forEach(camera => {
+                const cameraItem = document.createElement('div');
+                cameraItem.className = 'camera-list-item';
+                cameraItem.innerHTML = `
+                    <div class="camera-info">
+                        <div class="camera-name">${camera.name}</div>
+                        <div class="camera-details">
+                            Index: ${camera.index} | ${camera.resolution[0]}x${camera.resolution[1]} | ${camera.backend}
+                        </div>
+                    </div>
+                    <div class="camera-actions">
+                        <button class="btn btn-sm btn-info-elegant btn-camera" onclick="testCamera(${camera.index})">
+                            Test
+                        </button>
+                        <button class="btn btn-sm btn-success-elegant btn-camera" onclick="selectCamera(${camera.index})">
+                            Select
+                        </button>
+                    </div>
+                `;
+                camerasList.appendChild(cameraItem);
+            });
+            
+            availableCameras.style.display = 'block';
+        }
+        
+        function testCamera(cameraIndex) {
+            showAlert('🧪 Testing camera...', 'info');
+            
+            fetch(`/api/cameras/test/${cameraIndex}`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(`✅ Camera ${cameraIndex} test passed`, 'success');
+                } else {
+                    showAlert(`❌ Camera ${cameraIndex} test failed`, 'warning');
+                }
+            })
+            .catch(error => {
+                console.error('Camera test error:', error);
+                showAlert('Network error during camera test', 'danger');
+            });
+        }
+        
+        function selectCamera(cameraIndex) {
+            const camera = discoveredCameras.find(c => c.index === cameraIndex);
+            if (!camera) return;
+            
+            // Check if already selected
+            const existingIndex = selectedCameras.findIndex(c => c.index === cameraIndex);
+            if (existingIndex !== -1) {
+                selectedCameras.splice(existingIndex, 1);
+                updateCameraListSelection();
+                showAlert(`📷 Camera ${camera.name} deselected`, 'info');
+            } else {
+                if (selectedCameras.length >= 4) {
+                    showAlert('Maximum 4 cameras supported', 'warning');
+                    return;
+                }
+                
+                selectedCameras.push({
+                    id: `camera_${cameraIndex}`,
+                    index: cameraIndex,
+                    name: camera.name,
+                    source: cameraIndex,
+                    resolution: camera.resolution,
+                    fps_limit: 10
+                });
+                updateCameraListSelection();
+                showAlert(`📷 Camera ${camera.name} selected`, 'success');
+            }
+            
+            // Enable/disable start button
+            startMultiBtn.disabled = selectedCameras.length === 0;
+        }
+        
+        function updateCameraListSelection() {
+            const items = camerasList.querySelectorAll('.camera-list-item');
+            items.forEach((item, index) => {
+                const cameraIndex = discoveredCameras[index].index;
+                const isSelected = selectedCameras.some(c => c.index === cameraIndex);
+                
+                if (isSelected) {
+                    item.classList.add('selected');
+                    item.querySelector('.btn-success-elegant').textContent = 'Remove';
+                } else {
+                    item.classList.remove('selected');
+                    item.querySelector('.btn-success-elegant').textContent = 'Select';
+                }
+            });
+        }
+        
+        // Start multi-camera stream
+        startMultiBtn.addEventListener('click', function() {
+            if (selectedCameras.length === 0) {
+                showAlert('Please select at least one camera', 'warning');
+                return;
+            }
+            
+            const originalText = startMultiBtn.innerHTML;
+            startMultiBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Starting...';
+            startMultiBtn.disabled = true;
+            
+            fetch('/api/multi_stream/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    cameras: selectedCameras
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    multiStreamRunning = true;
+                    stopMultiBtn.disabled = false;
+                    showAlert(`🚀 Multi-camera stream started with ${data.cameras.length} cameras`, 'success');
+                    startMultiCameraUpdates();
+                } else {
+                    showAlert('Failed to start multi-camera stream: ' + data.error, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Multi-stream start error:', error);
+                showAlert('Network error starting multi-camera stream', 'danger');
+            })
+            .finally(() => {
+                startMultiBtn.innerHTML = originalText;
+                startMultiBtn.disabled = false;
+            });
+        });
+        
+        // Stop multi-camera stream
+        stopMultiBtn.addEventListener('click', function() {
+            fetch('/api/stop_stream', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    multiStreamRunning = false;
+                    startMultiBtn.disabled = selectedCameras.length === 0;
+                    stopMultiBtn.disabled = true;
+                    showAlert('🛑 Multi-camera stream stopped', 'success');
+                    stopMultiCameraUpdates();
+                    clearMultiCameraViews();
+                } else {
+                    showAlert('Failed to stop multi-camera stream: ' + data.error, 'warning');
+                }
+            })
+            .catch(error => {
+                console.error('Error stopping multi-stream:', error);
+                showAlert('Network error', 'danger');
+            });
+        });
+        
+        let multiCameraUpdateInterval = null;
+        
+        function startMultiCameraUpdates() {
+            if (multiCameraUpdateInterval) return;
+            
+            multiCameraUpdateInterval = setInterval(function() {
+                updateMultiCameraViews();
+            }, 1000); // Update every second
+        }
+        
+        function stopMultiCameraUpdates() {
+            if (multiCameraUpdateInterval) {
+                clearInterval(multiCameraUpdateInterval);
+                multiCameraUpdateInterval = null;
+            }
+        }
+        
+        function updateMultiCameraViews() {
+            if (!multiStreamRunning) return;
+            
+            selectedCameras.forEach((camera, index) => {
+                const cameraElement = document.getElementById(`camera${index + 1}`);
+                if (!cameraElement) return;
+                
+                // Get latest frame for this camera
+                fetch(`/api/multi_stream/camera/${camera.id}/latest`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            updateCameraView(index + 1, data);
+                        }
+                    })
+                    .catch(error => {
+                        console.error(`Error updating camera ${index + 1}:`, error);
+                    });
+            });
+        }
+        
+        function updateCameraView(cameraIndex, data) {
+            const cameraContainer = document.querySelector(`#camera${cameraIndex}`);
+            const cameraHeader = cameraContainer.parentElement.querySelector('.camera-header');
+            
+            // Update header
+            const nameSpan = cameraHeader.querySelector('small');
+            const statusBadge = cameraHeader.querySelector('.badge');
+            
+            nameSpan.textContent = data.camera_name;
+            statusBadge.className = 'badge bg-success';
+            statusBadge.textContent = 'Online';
+            
+            // Update camera stream
+            let img = cameraContainer.querySelector('img');
+            if (!img) {
+                // Create image element
+                img = document.createElement('img');
+                img.style.width = '100%';
+                img.style.height = '100%';
+                img.style.objectFit = 'cover';
+                cameraContainer.innerHTML = '';
+                cameraContainer.appendChild(img);
+            }
+            
+            // Update image source
+            img.src = `data:image/jpeg;base64,${data.frame_base64}`;
+        }
+        
+        function clearMultiCameraViews() {
+            for (let i = 1; i <= 4; i++) {
+                const cameraContainer = document.querySelector(`#camera${i}`);
+                const cameraHeader = cameraContainer.parentElement.querySelector('.camera-header');
+                
+                // Reset header
+                const nameSpan = cameraHeader.querySelector('small');
+                const statusBadge = cameraHeader.querySelector('.badge');
+                
+                nameSpan.textContent = `Camera ${i}`;
+                statusBadge.className = 'badge bg-secondary';
+                statusBadge.textContent = 'Offline';
+                
+                // Reset camera view
+                cameraContainer.innerHTML = `
+                    <div class="camera-placeholder">
+                        <i class="bi bi-camera-video text-muted"></i>
+                        <p class="small text-muted mt-2">No Camera</p>
+                    </div>
+                `;
+            }
+        }
+        
+        // Multi-camera socket events
+        socket.on('multi_camera_frame', function(data) {
+            console.log('Multi-camera frame:', data);
+        });
+        
+        socket.on('multi_camera_detection', function(data) {
+            console.log('Multi-camera detection:', data);
+            // You can add detection handling here
+        });
+        
+        // ================== END MULTI-CAMERA FUNCTIONS ==================
+        
+        // Initialize page
+        updateStreamStatus(false);
+        
+        // Auto-reload video every 30 seconds if error
+        setInterval(function() {
+            const img = document.getElementById('videoStream');
+            const status = document.getElementById('videoStatus');
+            
+            if (status.style.display !== 'none') {
+                console.log('Auto-reloading video feed...');
+                reloadVideo();
+            }
+        }, 30000);
+    </script>
+</body>
+</html>

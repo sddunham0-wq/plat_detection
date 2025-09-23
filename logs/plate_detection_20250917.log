@@ -1,0 +1,16 @@
+2025-09-17 10:09:35,523 - INFO - Live Plate Detection System initialized
+2025-09-17 10:09:35,523 - INFO - Initializing database...
+2025-09-17 10:09:35,527 - INFO - Database initialized: detected_plates.db
+2025-09-17 10:09:35,527 - INFO - Initializing plate detector...
+2025-09-17 10:09:35,527 - INFO - License Plate Detector initialized
+2025-09-17 10:09:35,527 - INFO - Initializing motorcycle plate detector...
+2025-09-17 10:09:35,527 - WARNING - Failed to initialize motorcycle detector: MotorcyclePlateDetector.__init__() got an unexpected keyword argument 'confidence'
+2025-09-17 10:09:35,527 - INFO - Initializing video stream: test_video_plates.mp4
+2025-09-17 10:09:35,527 - INFO - Initializing frame processor...
+2025-09-17 10:09:35,527 - INFO - FrameProcessor initialized with 4 processing threads
+2025-09-17 10:09:35,527 - INFO - Initializing display manager...
+2025-09-17 10:09:35,527 - INFO - SSH environment detected - disabling display
+2025-09-17 10:09:35,527 - INFO - Fallback display: saving frames to preview_frames
+2025-09-17 10:09:35,527 - INFO - Display manager initialized: FallbackDisplayManager
+2025-09-17 10:09:35,527 - INFO - All components initialized successfully
+2025-09-17 10:09:35,560 - INFO - Video stream started - Source: test_video_plates.mp4, FPS: 2.0

@@ -1,0 +1,23 @@
+2025-09-19 13:26:52,887 - INFO - Live Plate Detection System initialized
+2025-09-19 13:26:52,887 - INFO - Initializing database...
+2025-09-19 13:26:52,887 - INFO - Database initialized: detected_plates.db
+2025-09-19 13:26:52,887 - INFO - Initializing plate detector...
+2025-09-19 13:26:52,887 - INFO - License Plate Detector initialized
+2025-09-19 13:26:52,887 - INFO - Initializing motorcycle plate detector...
+2025-09-19 13:26:52,887 - INFO - Indonesian Plate OCR initialized
+2025-09-19 13:26:52,887 - INFO - Indonesian OCR initialized for motorcycle detection
+2025-09-19 13:26:52,887 - INFO - Motorcycle detector initialized - Enabled: True
+2025-09-19 13:26:52,887 - INFO - ✅ Motorcycle plate detector enabled
+2025-09-19 13:26:52,888 - INFO - Initializing video stream: rtsp://admin:H4nd4l9165!@192.168.1.195:554/85
+2025-09-19 13:26:52,888 - INFO - Initializing frame processor...
+2025-09-19 13:26:52,888 - INFO - FrameProcessor initialized with 4 processing threads
+2025-09-19 13:26:52,888 - INFO - Initializing display manager...
+2025-09-19 13:26:52,888 - INFO - SSH environment detected - disabling display
+2025-09-19 13:26:52,888 - INFO - Fallback display: saving frames to preview_frames
+2025-09-19 13:26:52,888 - INFO - Display manager initialized: FallbackDisplayManager
+2025-09-19 13:26:52,888 - INFO - All components initialized successfully
+2025-09-19 13:26:52,888 - INFO - Starting video stream...
+2025-09-19 13:26:52,920 - ERROR - Failed to open video source: rtsp://admin:H4nd4l9165!@192.168.1.195:554/85
+2025-09-19 13:26:52,920 - WARNING - RTSP connection failed, retrying in 5s... (attempt 1)
+2025-09-19 13:26:57,942 - ERROR - Failed to open video source: rtsp://admin:H4nd4l9165!@192.168.1.195:554/85
+2025-09-19 13:26:57,943 - WARNING - RTSP connection failed, retrying in 5s... (attempt 2)

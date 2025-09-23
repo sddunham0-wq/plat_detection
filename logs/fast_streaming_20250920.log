@@ -1,0 +1,13 @@
+2025-09-20 09:19:48,916 - INFO - Database initialized: detected_plates.db
+2025-09-20 09:19:48,917 - INFO - License Plate Detector initialized
+2025-09-20 09:19:48,917 - INFO - 🚀 Fast Streaming System initialized
+2025-09-20 09:19:48,917 - ERROR - Error in fast streaming: VideoStream.__init__() got an unexpected keyword argument 'timeout'
+2025-09-20 09:19:48,917 - INFO - 🛑 Stopping fast streaming system...
+2025-09-20 09:19:48,917 - INFO - 📊 Final Statistics:
+2025-09-20 09:19:48,917 - INFO -    Total Runtime: 0.0 seconds
+2025-09-20 09:19:48,917 - INFO -    Average FPS: 0.0
+2025-09-20 09:19:48,917 - INFO -    Total Frames: 0
+2025-09-20 09:19:48,917 - INFO -    Processed Frames: 0
+2025-09-20 09:19:48,917 - INFO -    Skipped Frames: 0
+2025-09-20 09:19:48,917 - INFO -    Total Detections: 0
+2025-09-20 09:19:48,917 - INFO - ✅ Fast streaming stopped

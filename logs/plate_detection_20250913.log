@@ -1,0 +1,46 @@
+2025-09-13 09:38:15,917 - INFO - Live Plate Detection System initialized
+2025-09-13 09:38:15,917 - INFO - Initializing database...
+2025-09-13 09:38:15,920 - INFO - Database initialized: detected_plates.db
+2025-09-13 09:38:15,920 - INFO - Initializing plate detector...
+2025-09-13 09:38:15,920 - INFO - License Plate Detector initialized
+2025-09-13 09:38:15,920 - INFO - Initializing video stream: rtsp://admin:H4nd4l9165!@192.168.1.195:554/85
+2025-09-13 09:38:15,920 - INFO - Initializing frame processor...
+2025-09-13 09:38:15,920 - INFO - FrameProcessor initialized with 4 processing threads
+2025-09-13 09:38:15,920 - INFO - All components initialized successfully
+2025-09-13 09:38:15,920 - INFO - Starting video stream...
+2025-09-13 09:38:18,340 - INFO - Video stream started - Source: rtsp://admin:H4nd4l9165!@192.168.1.195:554/85, FPS: 25.0
+2025-09-13 09:38:18,341 - INFO - Starting frame processor...
+2025-09-13 09:38:18,341 - INFO - FrameProcessor started
+2025-09-13 09:38:18,341 - INFO - 🚀 Live detection system started successfully!
+2025-09-13 11:11:55,648 - INFO - Live Plate Detection System initialized
+2025-09-13 11:11:55,649 - INFO - Initializing database...
+2025-09-13 11:11:55,649 - INFO - Database initialized: detected_plates.db
+2025-09-13 11:11:55,649 - INFO - Initializing plate detector...
+2025-09-13 11:11:55,649 - INFO - License Plate Detector initialized
+2025-09-13 11:11:55,649 - INFO - Initializing video stream: test_video.mp4
+2025-09-13 11:11:55,649 - INFO - Initializing frame processor...
+2025-09-13 11:11:55,649 - INFO - FrameProcessor initialized with 4 processing threads
+2025-09-13 11:11:55,649 - INFO - Initializing display manager...
+2025-09-13 11:11:55,649 - INFO - SSH environment detected - disabling display
+2025-09-13 11:11:55,649 - INFO - Fallback display: saving frames to preview_frames
+2025-09-13 11:11:55,649 - INFO - Display manager initialized: FallbackDisplayManager
+2025-09-13 11:11:55,649 - INFO - All components initialized successfully
+2025-09-13 11:11:55,649 - INFO - Starting video stream...
+2025-09-13 11:11:55,651 - INFO - Video stream started - Source: test_video.mp4, FPS: 10.0
+2025-09-13 11:11:55,651 - INFO - Starting frame processor...
+2025-09-13 11:11:55,651 - DEBUG - ProcessingThread-0 started
+2025-09-13 11:11:55,651 - DEBUG - ProcessingThread-1 started
+2025-09-13 11:11:55,651 - DEBUG - ProcessingThread-2 started
+2025-09-13 11:11:55,651 - DEBUG - ProcessingThread-3 started
+2025-09-13 11:11:55,651 - DEBUG - OutputThread started
+2025-09-13 11:11:55,652 - INFO - FrameProcessor started
+2025-09-13 11:11:55,652 - INFO - Starting display manager...
+2025-09-13 11:11:55,652 - INFO - 🚀 Live detection system started successfully!
+2025-09-13 11:11:55,670 - DEBUG - ProcessingThread-0 processed frame 1 in 0.002s
+2025-09-13 11:11:55,670 - DEBUG - ProcessingThread-1 processed frame 2 in 0.002s
+2025-09-13 11:11:55,679 - DEBUG - ProcessingThread-2 processed frame 3 in 0.001s
+2025-09-13 11:11:55,795 - DEBUG - ['/opt/homebrew/bin/tesseract', '/var/folders/8r/khj9pl4j46s7m3ypcmd_rpfm0000gs/T/tess_ipazayr6_input.PNG', '/var/folders/8r/khj9pl4j46s7m3ypcmd_rpfm0000gs/T/tess_ipazayr6', '-l', 'eng', '-c', 'tessedit_create_tsv=1', '--psm', '8', '--oem', '3', '-c', 'tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789']
+2025-09-13 11:11:55,795 - DEBUG - ['/opt/homebrew/bin/tesseract', '/var/folders/8r/khj9pl4j46s7m3ypcmd_rpfm0000gs/T/tess_izoxdbum_input.PNG', '/var/folders/8r/khj9pl4j46s7m3ypcmd_rpfm0000gs/T/tess_izoxdbum', '-l', 'eng', '-c', 'tessedit_create_tsv=1', '--psm', '8', '--oem', '3', '-c', 'tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789']
+2025-09-13 11:11:55,895 - DEBUG - ProcessingThread-3 processed frame 4 in 0.201s
+2025-09-13 11:11:55,896 - DEBUG - ProcessingThread-0 processed frame 5 in 0.186s
+2025-09-13 11:11:56,231 - ERROR - Too many read errors, stopping stream

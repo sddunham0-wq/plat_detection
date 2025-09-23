@@ -1,0 +1,27 @@
+# Enhanced License Plate Detection Dependencies
+# Core computer vision and image processing
+opencv-python>=4.5.0
+numpy>=1.21.0
+pillow>=8.0.0
+
+# OCR engine
+pytesseract>=0.3.8
+
+# Advanced image processing for enhancement
+scikit-image>=0.19.0
+scipy>=1.8.0
+
+# Optional: GPU acceleration (uncomment if needed)
+# opencv-contrib-python>=4.5.0
+
+# Database (already in main requirements.txt)
+# sqlite3 - built into Python
+
+# Existing dependencies from main requirements.txt
+# cv2, numpy, pytesseract already covered above
+
+# System requirements (install separately):
+# - Tesseract OCR binary
+#   macOS: brew install tesseract tesseract-lang
+#   Ubuntu: sudo apt install tesseract-ocr tesseract-ocr-ind tesseract-ocr-eng
+#   Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki

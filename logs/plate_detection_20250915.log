@@ -1,0 +1,56 @@
+2025-09-15 14:23:53,684 - INFO - Live Plate Detection System initialized
+2025-09-15 14:23:53,684 - INFO - Initializing database...
+2025-09-15 14:23:53,687 - INFO - Database initialized: detected_plates.db
+2025-09-15 14:23:53,687 - INFO - Initializing plate detector...
+2025-09-15 14:23:53,687 - INFO - License Plate Detector initialized
+2025-09-15 14:23:53,687 - INFO - Initializing video stream: rtsp://your-camera-url
+2025-09-15 14:23:53,688 - INFO - Initializing frame processor...
+2025-09-15 14:23:53,688 - INFO - FrameProcessor initialized with 4 processing threads
+2025-09-15 14:23:53,688 - INFO - Initializing display manager...
+2025-09-15 14:23:53,688 - INFO - SSH environment detected - disabling display
+2025-09-15 14:23:53,688 - INFO - Fallback display: saving frames to preview_frames
+2025-09-15 14:23:53,688 - INFO - Display manager initialized: FallbackDisplayManager
+2025-09-15 14:23:53,688 - INFO - All components initialized successfully
+2025-09-15 14:23:53,688 - INFO - Starting video stream...
+2025-09-15 14:23:53,711 - ERROR - Failed to open video source: rtsp://your-camera-url
+2025-09-15 14:23:53,711 - WARNING - RTSP connection failed, retrying in 5s... (attempt 1)
+2025-09-15 14:23:58,721 - ERROR - Failed to open video source: rtsp://your-camera-url
+2025-09-15 14:23:58,721 - WARNING - RTSP connection failed, retrying in 5s... (attempt 2)
+2025-09-15 14:24:03,732 - ERROR - Failed to open video source: rtsp://your-camera-url
+2025-09-15 14:24:03,732 - WARNING - RTSP connection failed, retrying in 5s... (attempt 3)
+2025-09-15 14:24:08,747 - ERROR - Failed to open video source: rtsp://your-camera-url
+2025-09-15 14:24:08,747 - WARNING - RTSP connection failed, retrying in 5s... (attempt 4)
+2025-09-15 14:24:13,761 - ERROR - Failed to open video source: rtsp://your-camera-url
+2025-09-15 14:24:13,761 - ERROR - Failed to connect to RTSP stream after multiple attempts
+2025-09-15 14:24:13,761 - ERROR - Failed to start video stream
+2025-09-15 14:24:13,787 - INFO - Stopping video stream...
+2025-09-15 14:24:13,788 - INFO - Video stream stopped
+2025-09-15 14:27:47,054 - INFO - Live Plate Detection System initialized
+2025-09-15 14:27:47,054 - INFO - Initializing database...
+2025-09-15 14:27:47,059 - INFO - Database initialized: detected_plates.db
+2025-09-15 14:27:47,059 - INFO - Initializing plate detector...
+2025-09-15 14:27:47,059 - INFO - License Plate Detector initialized
+2025-09-15 14:27:47,059 - INFO - Initializing video stream: test_video.mp4
+2025-09-15 14:27:47,059 - INFO - Initializing frame processor...
+2025-09-15 14:27:47,059 - INFO - FrameProcessor initialized with 4 processing threads
+2025-09-15 14:27:47,059 - INFO - All components initialized successfully
+2025-09-15 14:27:47,059 - INFO - Starting video stream...
+2025-09-15 14:27:47,062 - INFO - Video stream started - Source: test_video.mp4, FPS: 10.0
+2025-09-15 14:27:47,062 - INFO - Starting frame processor...
+2025-09-15 14:27:47,063 - INFO - FrameProcessor started
+2025-09-15 14:27:47,063 - INFO - 🚀 Live detection system started successfully!
+2025-09-15 14:27:47,723 - ERROR - Too many read errors, stopping stream
+2025-09-15 14:27:59,209 - INFO - Live Plate Detection System initialized
+2025-09-15 14:27:59,209 - INFO - Initializing database...
+2025-09-15 14:27:59,210 - INFO - Database initialized: detected_plates.db
+2025-09-15 14:27:59,210 - INFO - Initializing plate detector...
+2025-09-15 14:27:59,210 - INFO - License Plate Detector initialized
+2025-09-15 14:27:59,210 - INFO - Initializing video stream: rtsp://admin:H4nd4l9165!@192.168.1.195:554/85
+2025-09-15 14:27:59,210 - INFO - Initializing frame processor...
+2025-09-15 14:27:59,210 - INFO - FrameProcessor initialized with 4 processing threads
+2025-09-15 14:27:59,210 - INFO - All components initialized successfully
+2025-09-15 14:27:59,210 - INFO - Starting video stream...
+2025-09-15 14:28:01,340 - INFO - Video stream started - Source: rtsp://admin:H4nd4l9165!@192.168.1.195:554/85, FPS: 25.0
+2025-09-15 14:28:01,340 - INFO - Starting frame processor...
+2025-09-15 14:28:01,341 - INFO - FrameProcessor started
+2025-09-15 14:28:01,341 - INFO - 🚀 Live detection system started successfully!
