@@ -20,6 +20,7 @@ from utils.hybrid_plate_detector import HybridPlateDetector
 from utils.yolo_detector import YOLOObjectDetector, create_yolo_detector
 from utils.tracking_manager import TrackingManager
 from utils.plate_counter_manager import PlateCounterManager, create_plate_counter_manager
+from utils.stable_plate_counter import StablePlateCounter, create_stable_plate_counter
 from enhanced_plate_detector import EnhancedPlateDetector
 from database import PlateDatabase
 from config import TrackingConfig
@@ -102,11 +103,13 @@ class HeadlessStreamManager:
         self.frame_callbacks = []
         self.detection_callbacks = []
         
-        # Statistics
+        # Statistics - FIXED untuk unique plate counting
         self.stats = {
             'total_frames': 0,
-            'total_detections': 0,  # Total plat nomor yang berhasil dibaca (akumulatif)
-            'total_detection_events': 0,  # Total detection events (akumulatif)
+            'total_detections': 0,  # FIXED: Total UNIQUE plates detected (bukan raw detections!)
+            'unique_plates_current': 0,  # Unique plates currently visible
+            'unique_plates_session': 0,  # Total unique plates dalam session
+            'raw_detection_events': 0,  # Raw detection events untuk debugging
             'current_objects': 0,  # Objek saat ini di frame (current)
             'current_vehicles': 0,  # Kendaraan saat ini di frame (current)
             'fps': 0.0,
@@ -119,17 +122,27 @@ class HeadlessStreamManager:
         
         # Logger already initialized above
         
-        # Initialize plate counter manager
-        self.logger.info("Initializing accurate plate counter system...")
-        counter_config = {
-            'similarity_threshold': 0.85,  # High threshold untuk avoid false matches
-            'spatial_proximity_distance': 60.0,  # Reasonable distance untuk same plate
-            'plate_expiry_time': 3.0,  # Quick expiry untuk responsive counting
-            'confirmation_threshold': 2,  # BALANCED: Need 2 hits untuk confirmation (responsive tapi accurate)
-            'confidence_filter_min': 0.45  # BALANCED FOR INDONESIA: Accept medium-low confidence tapi filter noise
+        # Initialize ULTRA-STABLE plate counter system untuk Indonesian plates
+        self.logger.info("Initializing ULTRA-STABLE plate counter system for Indonesian traffic...")
+        stable_counter_config = {
+            'text_similarity_threshold': 0.82,  # Higher untuk better matching
+            'spatial_distance_threshold': 150.0,  # Larger untuk Indonesian traffic movement patterns
+            'temporal_window': 4.0,  # 4 second stability window (optimized)
+            'min_stability_score': 0.60,  # Balanced stability requirement
+            'min_confidence': 0.35,  # Optimized untuk Indonesian OCR challenges
+            'confirmation_detections': 2  # Quick confirmation untuk responsiveness
         }
-        self.plate_counter = create_plate_counter_manager(counter_config)
-        self.logger.info("✅ Accurate plate counter initialized")
+        self.stable_counter = create_stable_plate_counter(stable_counter_config)
+
+        # Keep old counter untuk compatibility (dapat di-disable nanti)
+        self.plate_counter = create_plate_counter_manager({
+            'similarity_threshold': 0.85,
+            'spatial_proximity_distance': 60.0,
+            'plate_expiry_time': 3.0,
+            'confirmation_threshold': 2,
+            'confidence_filter_min': 0.45
+        })
+        self.logger.info("✅ ULTRA-STABLE Indonesian plate counter initialized")
 
         # Initialize tracking manager
         if self.tracking_enabled:
@@ -356,15 +369,23 @@ class HeadlessStreamManager:
                         self.logger.error(f"Hybrid detection failed: {e}")
                         plate_detections = []
                 
-                # Process plates dengan accurate counter system
-                # Integrate dengan PlateCounterManager untuk accurate counting
+                # Process plates dengan ULTRA-STABLE counter system
+                # Use both counters untuk comprehensive analysis
                 for detection in plate_detections:
                     try:
                         # Extract vehicle type dari tracking atau detection method
                         vehicle_type = getattr(detection, 'vehicle_type', 'unknown')
 
-                        # Add detection ke counter manager
-                        plate_id = self.plate_counter.add_or_update_detection(
+                        # PRIMARY: Add to STABLE counter (main counting system)
+                        stable_plate_id = self.stable_counter.add_detection(
+                            text=detection.text,
+                            bbox=detection.bbox,
+                            confidence=detection.confidence,
+                            vehicle_type=vehicle_type
+                        )
+
+                        # SECONDARY: Add to legacy counter untuk comparison
+                        legacy_plate_id = self.plate_counter.add_or_update_detection(
                             detection_text=detection.text,
                             detection_bbox=detection.bbox,
                             confidence=detection.confidence,
@@ -372,12 +393,12 @@ class HeadlessStreamManager:
                             vehicle_type=vehicle_type
                         )
 
-                        # Set plate_id untuk reference
-                        if plate_id:
-                            detection.plate_counter_id = plate_id
+                        # Set plate_id untuk reference (prefer stable counter)
+                        detection.stable_plate_id = stable_plate_id
+                        detection.plate_counter_id = legacy_plate_id
 
                     except Exception as e:
-                        self.logger.error(f"Error adding detection to counter: {e}")
+                        self.logger.error(f"Error adding detection to stable counter: {e}")
 
                 # Process dengan tracking system jika enabled
                 tracked_objects = []
@@ -488,44 +509,59 @@ class HeadlessStreamManager:
                 
                 # Count vehicles in object detections
                 vehicle_count = sum(1 for obj in object_detections if obj.is_vehicle)
-                
-                # Get accurate counts dari PlateCounterManager
-                accurate_counts = self.plate_counter.get_current_counts()
+
+                # Get ULTRA-STABLE counts dari StablePlateCounter (PRIMARY)
+                stable_counts = self.stable_counter.get_stable_counts()
+
+                # Get legacy counts untuk comparison (SECONDARY)
+                legacy_counts = self.plate_counter.get_current_counts()
 
                 with self.lock:
-                    # Update detection events counter (akumulatif untuk historical tracking)
-                    if len(object_detections) > 0:
-                        self.stats['total_detection_events'] += 1
+                    # Update raw detection events untuk debugging (bukan untuk UI display!)
+                    if len(plate_detections) > 0:
+                        self.stats['raw_detection_events'] += len(plate_detections)
 
                     # Use tracking results untuk statistics jika available
                     current_vehicles = len([obj for obj in tracked_objects if obj.is_vehicle]) if tracked_objects else vehicle_count
                     confirmed_plates_tracking = len([plate for plate in tracked_plates if plate.confirmed]) if tracked_plates else 0
 
-                    # Update dengan accurate counter statistics (FIXED THE OVER-COUNTING PROBLEM!)
+                    # ULTRA-STABLE: Update dengan stable unique plate statistics (ULTIMATE SOLUTION!)
                     self.stats.update({
                         'total_frames': frame_count,
-                        # FIXED: Use accurate total unique plates dari PlateCounterManager
-                        'total_detections': accurate_counts['total_unique_plates_session'],  # Total plat unik yang terdeteksi dalam session (bukan akumulasi berlebihan!)
-                        'current_unique_plates': accurate_counts['current_visible_plates'],  # Plat yang saat ini terlihat
-                        'total_unique_plates_session': accurate_counts['total_unique_plates_session'],  # Total plat unik dalam session
-                        'confirmed_unique_plates': accurate_counts['confirmed_visible_plates'],  # Plat yang sudah dikonfirmasi
-                        'raw_detections_processed': accurate_counts['raw_detections_processed'],  # Total raw detections untuk debugging
-                        'false_positives_filtered': accurate_counts['false_positives_filtered'],  # False positives yang difilter
-                        'duplicates_filtered': accurate_counts['duplicates_filtered'],  # Duplicates yang difilter
+                        # MAIN FIX: total_detections menggunakan ULTRA-STABLE counter!
+                        'total_detections': stable_counts['total_unique_session'],  # ✅ STABLE UNIQUE plates only!
+
+                        # STABLE COUNTER stats (PRIMARY)
+                        'stable_unique_plates_current': stable_counts['current_visible_plates'],
+                        'stable_unique_plates_session': stable_counts['total_unique_session'],
+                        'stable_confirmed_plates': stable_counts['stable_confirmed_plates'],
+                        'stable_high_confidence_plates': stable_counts['high_confidence_plates'],
+                        'stable_raw_processed': stable_counts['total_raw_processed'],
+                        'stable_quality_filtered': stable_counts['low_quality_filtered'] + stable_counts['false_positives_filtered'],
+
+                        # LEGACY COUNTER stats (untuk comparison)
+                        'legacy_unique_plates_current': legacy_counts['current_visible_plates'],
+                        'legacy_unique_plates_session': legacy_counts['total_unique_plates_session'],
+                        'legacy_raw_processed': legacy_counts['raw_detections_processed'],
+
+                        # GENERAL stats
                         'current_objects': len(tracked_objects) if tracked_objects else len(object_detections),
                         'current_vehicles': current_vehicles,
-                        'confirmed_plates': max(confirmed_plates_tracking, accurate_counts['confirmed_visible_plates']),  # Use the higher count
+                        'confirmed_plates': max(confirmed_plates_tracking, stable_counts['stable_confirmed_plates']),
                         'fps': round(current_fps, 1),
                         'avg_processing_time': round(avg_processing_time, 3),
                         'last_detection_time': time.time() if plate_detections else self.stats['last_detection_time']
                     })
 
-                    # Log accurate counts untuk debugging (dapat di-disable untuk production)
+                    # Log ULTRA-STABLE counts untuk monitoring
                     if frame_count % 30 == 0:  # Log every 30 frames
-                        self.logger.debug(f"Accurate counts: Current={accurate_counts['current_visible_plates']}, "
-                                        f"Total session={accurate_counts['total_unique_plates_session']}, "
-                                        f"Confirmed={accurate_counts['confirmed_visible_plates']}, "
-                                        f"Raw processed={accurate_counts['raw_detections_processed']}")
+                        self.logger.debug(f"🚗 ULTRA-STABLE PLATES: Current={stable_counts['current_visible_plates']}, "
+                                        f"Session total={stable_counts['total_unique_session']}, "
+                                        f"Stable confirmed={stable_counts['stable_confirmed_plates']}, "
+                                        f"High confidence={stable_counts['high_confidence_plates']}, "
+                                        f"Raw processed={stable_counts['total_raw_processed']} "
+                                        f"| Legacy comparison: Current={legacy_counts['current_visible_plates']}, "
+                                        f"Session={legacy_counts['total_unique_plates_session']}")
                 
                 # Convert frame to base64
                 frame_base64 = self._frame_to_base64(annotated_frame)
@@ -670,22 +706,33 @@ class HeadlessStreamManager:
             for key, value in tracking_stats.items():
                 stats[f'tracking_{key}'] = value
 
-        # Add accurate plate counter statistics (IMPORTANT: This fixes the counting problem!)
-        if hasattr(self, 'plate_counter') and self.plate_counter:
-            counter_stats = self.plate_counter.get_statistics()
+        # Add ULTRA-STABLE plate counter statistics (ULTIMATE SOLUTION!)
+        if hasattr(self, 'stable_counter') and self.stable_counter:
+            stable_stats = self.stable_counter.get_comprehensive_stats()
 
-            # Add counter stats dengan prefix untuk clarity
-            for key, value in counter_stats.items():
+            # Add stable counter stats dengan prefix
+            for key, value in stable_stats.items():
                 if key not in ['configuration']:  # Skip configuration details
-                    stats[f'counter_{key}'] = value
+                    stats[f'stable_{key}'] = value
 
-            # Add summary stats untuk easy access
+            # Add primary summary stats (these are displayed in UI)
             stats['plates_summary'] = {
-                'current_visible': counter_stats.get('current_visible_plates', 0),
-                'total_session': counter_stats.get('total_unique_plates_session', 0),
-                'confirmed': counter_stats.get('confirmed_visible_plates', 0),
-                'accuracy_rate': counter_stats.get('accuracy_metrics', {}).get('unique_plate_extraction_rate_percent', 0)
+                'current_visible': stable_stats.get('current_visible_plates', 0),
+                'total_session': stable_stats.get('total_unique_session', 0),
+                'stable_confirmed': stable_stats.get('stable_confirmed_plates', 0),
+                'high_confidence': stable_stats.get('high_confidence_plates', 0),
+                'stability_rate': stable_stats.get('stability_metrics', {}).get('stability_rate_percent', 0),
+                'efficiency_rate': stable_stats.get('stability_metrics', {}).get('efficiency_rate_percent', 0)
             }
+
+        # Add legacy plate counter statistics untuk comparison
+        if hasattr(self, 'plate_counter') and self.plate_counter:
+            legacy_stats = self.plate_counter.get_statistics()
+
+            # Add legacy counter stats dengan prefix untuk comparison
+            for key, value in legacy_stats.items():
+                if key not in ['configuration']:  # Skip configuration details
+                    stats[f'legacy_{key}'] = value
 
         # Add uptime
         stats['uptime'] = round(time.time() - stats['start_time'], 1)

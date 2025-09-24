@@ -113,12 +113,96 @@ class PlateCounterManager:
                         f"proximity={spatial_proximity_distance}px, expiry={plate_expiry_time}s")
 
     def normalize_text(self, text: str) -> str:
-        """Normalize text untuk consistent comparison"""
+        """Normalize text untuk consistent comparison - Enhanced for Indonesian plates"""
         if not text:
             return ""
 
-        # Remove spaces, convert to uppercase, remove special chars
-        normalized = ''.join(c.upper() for c in text if c.isalnum())
+        # Enhanced normalization untuk Indonesian plates
+        text = text.strip().upper()
+
+        # Clean up common noise characters
+        noise_chars = ['.', ',', ';', ':', '!', '?', '-', '_', '|', '\\', '/', '*']
+        for char in noise_chars:
+            text = text.replace(char, ' ')
+
+        # Handle Indonesian plate format: "B 1234 XYZ" or "B1234XYZ"
+        # Keep alphanumeric dan normalize spaces
+        normalized_chars = []
+        for c in text:
+            if c.isalnum():
+                normalized_chars.append(c)
+            elif c == ' ' and normalized_chars and normalized_chars[-1] != ' ':
+                normalized_chars.append(' ')
+
+        normalized = ''.join(normalized_chars).strip()
+
+        # Standardize Indonesian plate format: ensure space separation
+        import re
+        # Pattern: Letter(s) + Numbers + Letter(s)
+        plate_pattern = r'^([A-Z]{1,2})(\d{1,4})([A-Z]{1,3})$'
+        no_space_match = re.match(plate_pattern, normalized.replace(' ', ''))
+
+        if no_space_match:
+            # Reformat to standard: "B 1234 XYZ"
+            area, number, suffix = no_space_match.groups()
+            normalized = f"{area} {number} {suffix}"
+
+        # Smart OCR error correction untuk Indonesian context
+        # Handle cases where text doesn't have spaces yet (like "81234ABC")
+        if ' ' not in normalized and len(normalized) >= 6:
+            # Try to identify Indonesian pattern in no-space format
+            # Look for pattern: Letter(s) + Numbers + Letter(s)
+            import re
+            pattern_match = re.match(r'^([A-Z0-9]{1,2})(\d{1,4})([A-Z0-9]{1,3})$', normalized)
+
+            if pattern_match:
+                area_raw, number, suffix_raw = pattern_match.groups()
+
+                # Fix OCR errors in area code
+                area_fixed = area_raw
+                for i, char in enumerate(area_raw):
+                    if char.isdigit() and i == 0:  # First character should likely be letter
+                        if char == '0': area_fixed = area_fixed[:i] + 'O' + area_fixed[i+1:]
+                        elif char == '1': area_fixed = area_fixed[:i] + 'I' + area_fixed[i+1:]
+                        elif char == '5': area_fixed = area_fixed[:i] + 'S' + area_fixed[i+1:]
+                        elif char == '8': area_fixed = area_fixed[:i] + 'B' + area_fixed[i+1:]
+
+                # Fix OCR errors in suffix
+                suffix_fixed = suffix_raw
+                for i, char in enumerate(suffix_raw):
+                    if char.isdigit():
+                        if char == '0': suffix_fixed = suffix_fixed[:i] + 'O' + suffix_fixed[i+1:]
+                        elif char == '1': suffix_fixed = suffix_fixed[:i] + 'I' + suffix_fixed[i+1:]
+                        elif char == '5': suffix_fixed = suffix_fixed[:i] + 'S' + suffix_fixed[i+1:]
+                        elif char == '8': suffix_fixed = suffix_fixed[:i] + 'B' + suffix_fixed[i+1:]
+
+                normalized = f"{area_fixed} {number} {suffix_fixed}"
+
+        # Apply corrections to already spaced format
+        parts = normalized.split()
+        if len(parts) == 3:  # Standard "B 1234 XYZ" format
+            area_code, number, suffix = parts
+
+            # Fix common OCR errors dalam area code (first part - should be letters)
+            area_fixed = area_code
+            for i, char in enumerate(area_code):
+                if char.isdigit():
+                    if char == '0': area_fixed = area_fixed[:i] + 'O' + area_fixed[i+1:]
+                    elif char == '1': area_fixed = area_fixed[:i] + 'I' + area_fixed[i+1:]
+                    elif char == '5': area_fixed = area_fixed[:i] + 'S' + area_fixed[i+1:]
+                    elif char == '8': area_fixed = area_fixed[:i] + 'B' + area_fixed[i+1:]
+
+            # Fix common OCR errors dalam suffix (last part - should be letters)
+            suffix_fixed = suffix
+            for i, char in enumerate(suffix):
+                if char.isdigit():
+                    if char == '0': suffix_fixed = suffix_fixed[:i] + 'O' + suffix_fixed[i+1:]
+                    elif char == '1': suffix_fixed = suffix_fixed[:i] + 'I' + suffix_fixed[i+1:]
+                    elif char == '5': suffix_fixed = suffix_fixed[:i] + 'S' + suffix_fixed[i+1:]
+                    elif char == '8': suffix_fixed = suffix_fixed[:i] + 'B' + suffix_fixed[i+1:]
+
+            normalized = f"{area_fixed} {number} {suffix_fixed}"
+
         return normalized
 
     def calculate_text_similarity(self, text1: str, text2: str) -> float:
@@ -201,11 +285,20 @@ class PlateCounterManager:
             self.session_stats['false_positives_filtered'] += 1
             return None
 
-        # Filter by text quality
+        # Filter by text quality - Enhanced for Indonesian plates
         normalized_text = self.normalize_text(detection_text)
-        if len(normalized_text) < 3:  # BALANCED: Minimum 3 chars untuk reduce noise (tapi masih allow partial plates)
+        if len(normalized_text.replace(' ', '')) < 4:  # Indonesian plates minimum 4 chars (B123X format)
             self.session_stats['false_positives_filtered'] += 1
             return None
+
+        # Additional quality check: Indonesian plate pattern validation
+        import re
+        indonesia_pattern = r'^[A-Z]{1,2}\s*\d{1,4}\s*[A-Z]{1,3}$'
+        if not re.match(indonesia_pattern, normalized_text):
+            # Allow some flexibility but filter obvious non-plates
+            if len(normalized_text) < 6 or not any(c.isdigit() for c in normalized_text):
+                self.session_stats['false_positives_filtered'] += 1
+                return None
 
         # Check for recent duplicate dalam cache
         current_time = time.time()
@@ -430,14 +523,15 @@ class PlateCounterManager:
 
 def create_plate_counter_manager(config: Optional[Dict] = None) -> PlateCounterManager:
     """
-    Factory function untuk create PlateCounterManager dengan config
+    Factory function untuk create PlateCounterManager dengan config optimized for Indonesian plates
     """
+    # Optimized config untuk Indonesian license plates
     default_config = {
-        'similarity_threshold': 0.8,
-        'spatial_proximity_distance': 50.0,
-        'plate_expiry_time': 5.0,
-        'confirmation_threshold': 3,
-        'confidence_filter_min': 0.6
+        'similarity_threshold': 0.85,  # Higher threshold untuk Indonesian plates (better text matching)
+        'spatial_proximity_distance': 60.0,  # Slightly larger distance untuk vehicle movement
+        'plate_expiry_time': 3.0,  # Shorter expiry untuk responsive counting (vehicles move fast)
+        'confirmation_threshold': 2,  # Lower threshold untuk responsiveness (2 hits = confirmed)
+        'confidence_filter_min': 0.45  # Lower untuk Indonesian OCR challenges tapi still filter noise
     }
 
     if config:

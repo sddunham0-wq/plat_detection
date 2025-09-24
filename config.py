@@ -9,20 +9,10 @@ class CCTVConfig:
     """Pengaturan CCTV dan Video Stream"""
     
     # Default video sources
-    # ✅ WORKING URL FOUND: Correct RTSP path discovered!
-    DEFAULT_RTSP_URL = "rtsp://admin:H4nd4l9165!@192.168.1.203:5503/cam/realmonitor?channel=1&subtype=0"  # NEW WORKING URL ✅
-
-    # Alternative URLs untuk testing dan fallback
-    # DEFAULT_RTSP_URL = "rtsp://admin:H4nd4l9165!@192.168.1.195:554"      # Previous working URL
+    # Try different ports - uncomment to test
+    DEFAULT_RTSP_URL = "rtsp://admin:H4nd4l9165!@192.168.1.195:554/85"      # Auto-detected working URL ✅
     # DEFAULT_RTSP_URL = "rtsp://admin:H4nd4l9165!@192.168.1.195:8554/85"   # Alternative RTSP port
-
-    # Fallback URLs jika yang utama tidak berfungsi
-    FALLBACK_RTSP_URLS = [
-        "rtsp://admin:H4nd4l9165!@192.168.1.195:554",                      # Previous working camera (fallback)
-        "rtsp://admin:H4nd4l9165!@192.168.1.203:5503/cam/realmonitor?channel=1&subtype=1",  # Substream
-        "rtsp://admin:H4nd4l9165!@192.168.1.203:554/cam/realmonitor?channel=1&subtype=0",   # Standard RTSP port
-        "rtsp://admin:H4nd4l9165!@192.168.1.195:8554/85",                  # Original alternative port
-    ]
+    # DEFAULT_RTSP_URL = "rtsp://admin:H4nd4l9165!@192.168.1.195:8005/85"   # Original port
     DEFAULT_WEBCAM = 0      # Default to laptop camera (index 0)
     DEFAULT_LAPTOP_CAMERA = 0  # Laptop built-in camera index
     DEFAULT_VIDEO_FILE = "video_cctv.mp4"
@@ -37,16 +27,10 @@ class CCTVConfig:
     ENABLE_FRAME_SKIPPING = True   # Enable frame skipping for better performance
     PROCESS_EVERY_N_FRAMES = 2     # Process every 2nd frame (skip 1 frame)
     
-    # RTSP connection settings - Enhanced untuk 192.168.1.203
-    RTSP_TIMEOUT = 15          # Timeout koneksi RTSP (detik) - increased for Dahua cameras
+    # RTSP connection settings
+    RTSP_TIMEOUT = 10          # Timeout koneksi RTSP (detik)
     RECONNECT_DELAY = 5        # Delay sebelum reconnect (detik)
     MAX_RECONNECT_ATTEMPTS = 3 # Maksimal percobaan reconnect
-
-    # Enhanced OpenCV settings untuk optimal RTSP streaming
-    OPENCV_BACKEND = 'FFMPEG'  # Force FFMPEG backend untuk RTSP
-    BUFFER_SIZE_RTSP = 1       # Minimal buffer untuk real-time streaming
-    FORCE_FRAME_SIZE = True    # Force frame size setting
-    PREFERRED_CODEC = 'H264'   # Preferred video codec
 
 class TesseractConfig:
     """Pengaturan Tesseract OCR untuk plat nomor Indonesia"""
@@ -70,9 +54,9 @@ class TesseractConfig:
     LANGUAGE = 'ind+eng'  # Indonesia + English untuk hasil terbaik
     FALLBACK_LANGUAGE = 'eng'  # Fallback jika Indonesia tidak tersedia
     
-    # Confidence threshold (0-100) - STRICT for false positive prevention
-    MIN_CONFIDENCE = 65        # Increased from 40 to 65 untuk prevent false positives
-    INDONESIAN_MIN_CONFIDENCE = 50  # Increased from 25 to 50 untuk strict Indonesian detection
+    # Confidence threshold (0-100) - OPTIMIZED for Indonesian plates
+    MIN_CONFIDENCE = 40        # Minimal confidence untuk accept hasil OCR (lowered for speed)
+    INDONESIAN_MIN_CONFIDENCE = 25  # Lowered for faster processing
     
     # Auto language detection - OPTIMIZED thresholds
     ENABLE_AUTO_LANGUAGE = True  # Enable auto-detection berdasarkan confidence
@@ -156,38 +140,19 @@ class DetectionConfig:
     ROI_AREA = (0.05, 0.2, 0.9, 0.6)  # Expanded area for better coverage
     
     # Enhanced duplicate detection
-    DUPLICATE_THRESHOLD = 12          # Increased from 5 to 12 seconds untuk better temporal filtering
+    DUPLICATE_THRESHOLD = 5           # Increased for faster processing
     MIN_PLATE_LENGTH = 5             # Minimal panjang karakter plat
     MAX_PLATE_LENGTH = 12            # Maksimal panjang karakter plat
-
-    # Quality-based filtering thresholds (STRICT)
-    MIN_QUALITY_SCORE = 0.75         # Increased from 0.6 to 0.75 untuk strict quality validation
-    MIN_CONFIDENCE_THRESHOLD = 0.5    # Increased from 0.3 to 0.5 untuk prevent false positives
-    MIN_TEXT_SCORE = 0.6             # Minimum text pattern score (60%)
-
-    # Enhanced IoU threshold untuk duplicate filtering
-    ENHANCED_IOU_THRESHOLD = 0.65    # Increased from 0.30 to 0.65 untuk better duplicate removal
     
     # Color-based detection thresholds
     ENABLE_COLOR_FILTERING = True     # Enable Indonesian plate color detection
     MIN_COLOR_CONFIDENCE = 15.0       # Minimum color confidence for regular plates
     MOTORCYCLE_MIN_COLOR_CONFIDENCE = 10.0  # Lower threshold for motorcycles
     
-    # Geometric validation thresholds (enhanced)
-    MIN_RECTANGULARITY = 0.5          # Reduced from 0.7 untuk better plate detection
-    MIN_SOLIDITY = 0.6               # Reduced from 0.8 untuk better motorcycle plates
-    MIN_EXTENT = 0.5                 # Reduced from 0.7 untuk angled plates
-
-    # Bounding box refinement parameters (STRICT)
-    ENABLE_BBOX_REFINEMENT = True     # Enable contour-based bounding box refinement
-    EDGE_DETECTION_THRESHOLD = 0.5    # Increased from 0.3 to 0.5 untuk strict edge quality
-    CONTOUR_AREA_MIN = 800           # Increased from 500 untuk larger minimum area
-    CONTOUR_AREA_MAX = 30000         # Decreased from 50000 untuk reasonable maximum
-
-    # False positive prevention parameters
-    MIN_EDGE_DENSITY = 0.15          # Minimum edge density untuk valid plates
-    MIN_CONTRAST_RATIO = 1.5         # Minimum contrast ratio untuk text visibility
-    MAX_BACKGROUND_UNIFORMITY = 0.8   # Maximum background uniformity (lower = more varied)
+    # Geometric validation thresholds
+    MIN_RECTANGULARITY = 0.7          # Minimum rectangularity score
+    MIN_SOLIDITY = 0.8               # Minimum solidity score
+    MIN_EXTENT = 0.7                 # Minimum extent score
     
     # Temporal smoothing settings
     ENABLE_TEMPORAL_SMOOTHING = True  # Enable detection tracking
