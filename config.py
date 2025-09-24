@@ -11,8 +11,8 @@ class CCTVConfig:
     # Default video sources
     # Try different ports - uncomment to test
     DEFAULT_RTSP_URL = "rtsp://admin:H4nd4l9165!@192.168.1.195:554/85"      # Auto-detected working URL ✅
-    # DEFAULT_RTSP_URL = "rtsp://admin:H4nd4l9165!@192.168.1.195:8554/85"   # Alternative RTSP port
-    # DEFAULT_RTSP_URL = "rtsp://admin:H4nd4l9165!@192.168.1.195:8005/85"   # Original port
+    # DEFAULT_RTSP_URL = "rtsp://:H4nd4l9165!@192.168.1.195:8554/85"   # Alternative RTSP port
+    # DEFAULT_RTSP_URL = "rtsp://:H4nd4l9165!@192.168.1.195:8005/85"   # Original port
     DEFAULT_WEBCAM = 0      # Default to laptop camera (index 0)
     DEFAULT_LAPTOP_CAMERA = 0  # Laptop built-in camera index
     DEFAULT_VIDEO_FILE = "video_cctv.mp4"

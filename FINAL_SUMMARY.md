@@ -20,7 +20,7 @@ python3 start_motorcycle_with_zones.py --zone sequential --source "rtsp://admin:
 ### **2. Extreme Distance Detection** 
 ```bash
 # Untuk jarak sangat jauh
-python3 start_motorcycle_with_zones.py --extreme --test-mode --source "rtsp://admin:H4nd4l9165!@168.1.195:554"
+python3 start_motorcycle_with_zones.py --extreme --test-mode --source "rtsp://:H4nd4l9165!@168.1.195:554"
 ```
 
 ### **3. Regular Detection**

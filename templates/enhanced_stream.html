@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Hybrid YOLO - Indonesian Plate Detection</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: rgba(0,0,0,0.3);
+            padding: 1rem;
+            text-align: center;
+            border-bottom: 2px solid rgba(255,255,255,0.1);
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: #a8d8ff;
+            font-size: 1rem;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 1rem;
+            padding: 1rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .video-section {
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            padding: 1rem;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+
+        #videoFeed {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            border: none;
+            padding: 0.8rem 1.5rem;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4);
+        }
+
+        .btn.success {
+            background: linear-gradient(45deg, #2ecc71, #27ae60);
+            box-shadow: 0 4px 15px rgba(46, 204, 113, 0.3);
+        }
+
+        .btn.success:hover {
+            box-shadow: 0 6px 20px rgba(46, 204, 113, 0.4);
+        }
+
+        .preset-selector {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        select {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+            padding: 0.5rem;
+            border-radius: 5px;
+            font-size: 0.9rem;
+        }
+
+        select option {
+            background: #2a5298;
+            color: white;
+        }
+
+        .stats-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .stat-card {
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            padding: 1.5rem;
+            border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .stat-card h3 {
+            color: #ffd700;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .unique-plates {
+            font-size: 3rem;
+            font-weight: bold;
+            color: #00ff88;
+            text-align: center;
+            text-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+        }
+
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 0.5rem 0;
+            padding: 0.5rem;
+            background: rgba(255,255,255,0.05);
+            border-radius: 5px;
+        }
+
+        .metric-label {
+            color: #a8d8ff;
+        }
+
+        .metric-value {
+            font-weight: bold;
+            color: #ffffff;
+        }
+
+        .detection-methods {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .method-card {
+            background: rgba(255,255,255,0.05);
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .method-count {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+
+        .yolo-count { color: #00ff88; }
+        .ocr-count { color: #ffd700; }
+        .hybrid-count { color: #ff6b6b; }
+
+        .system-status {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .status-item {
+            flex: 1;
+            text-align: center;
+            padding: 0.5rem;
+            border-radius: 5px;
+            font-size: 0.9rem;
+        }
+
+        .status-ok {
+            background: rgba(46, 204, 113, 0.2);
+            border: 1px solid #2ecc71;
+        }
+
+        .status-warning {
+            background: rgba(241, 196, 15, 0.2);
+            border: 1px solid #f1c40f;
+        }
+
+        .status-error {
+            background: rgba(231, 76, 60, 0.2);
+            border: 1px solid #e74c3c;
+        }
+
+        .recent-detections {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .detection-item {
+            background: rgba(255,255,255,0.05);
+            margin: 0.5rem 0;
+            padding: 0.8rem;
+            border-radius: 5px;
+            border-left: 3px solid #00ff88;
+        }
+
+        .detection-text {
+            font-weight: bold;
+            color: #00ff88;
+            font-size: 1.1rem;
+        }
+
+        .detection-meta {
+            font-size: 0.8rem;
+            color: #a8d8ff;
+            margin-top: 0.3rem;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            font-style: italic;
+            color: #a8d8ff;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚀 Enhanced Hybrid YOLO Detection</h1>
+        <p class="subtitle">Indonesian License Plate Detection dengan Ultra-Stable Counter</p>
+    </div>
+
+    <div class="container">
+        <!-- Video Section -->
+        <div class="video-section">
+            <div class="video-container">
+                <img id="videoFeed" src="/enhanced_video_feed" alt="Enhanced Video Stream">
+            </div>
+
+            <div class="controls">
+                <button class="btn" id="startBtn" onclick="startStream()">🚀 Start Enhanced Stream</button>
+                <button class="btn" id="stopBtn" onclick="stopStream()" style="display:none;">🛑 Stop Stream</button>
+
+                <div class="preset-selector">
+                    <label>Preset:</label>
+                    <select id="presetSelect" onchange="changePreset()">
+                        <option value="cctv_monitoring">CCTV Monitoring</option>
+                        <option value="laptop_camera">Laptop Camera</option>
+                        <option value="high_accuracy">High Accuracy</option>
+                        <option value="performance_optimized">Performance Mode</option>
+                    </select>
+                </div>
+
+                <button class="btn" onclick="resetStats()">🔄 Reset Stats</button>
+            </div>
+        </div>
+
+        <!-- Stats Panel -->
+        <div class="stats-panel">
+            <!-- Unique Plates Counter -->
+            <div class="stat-card">
+                <h3>🎯 Unique Plates Detected</h3>
+                <div id="uniquePlates" class="unique-plates pulse">0</div>
+                <div class="metric-row">
+                    <span class="metric-label">Currently Visible:</span>
+                    <span id="currentVisible" class="metric-value">0</span>
+                </div>
+            </div>
+
+            <!-- Detection Methods -->
+            <div class="stat-card">
+                <h3>🔍 Detection Methods</h3>
+                <div class="detection-methods">
+                    <div class="method-card">
+                        <div id="yoloCount" class="method-count yolo-count">0</div>
+                        <div>YOLO Detection</div>
+                    </div>
+                    <div class="method-card">
+                        <div id="ocrCount" class="method-count ocr-count">0</div>
+                        <div>OCR Fallback</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Status -->
+            <div class="stat-card">
+                <h3>⚙️ System Status</h3>
+                <div class="system-status">
+                    <div id="yoloStatus" class="status-item status-warning">YOLO: Loading</div>
+                    <div id="counterStatus" class="status-item status-warning">Counter: Loading</div>
+                    <div id="streamStatus" class="status-item status-warning">Stream: Stopped</div>
+                </div>
+            </div>
+
+            <!-- Performance Metrics -->
+            <div class="stat-card">
+                <h3>📊 Performance</h3>
+                <div class="metric-row">
+                    <span class="metric-label">FPS:</span>
+                    <span id="fps" class="metric-value">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Avg Processing:</span>
+                    <span id="avgProcessing" class="metric-value">0ms</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Detection Efficiency:</span>
+                    <span id="efficiency" class="metric-value">0%</span>
+                </div>
+            </div>
+
+            <!-- Recent Detections -->
+            <div class="stat-card">
+                <h3>📋 Recent Detections</h3>
+                <div id="recentDetections" class="recent-detections">
+                    <div class="loading">Start stream to see detections...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <script>
+        const socket = io();
+        let streamRunning = false;
+
+        // Socket event handlers
+        socket.on('connect', function() {
+            console.log('Connected to Enhanced Hybrid server');
+        });
+
+        socket.on('enhanced_stats_update', function(stats) {
+            updateStats(stats);
+        });
+
+        socket.on('new_detections', function(detections) {
+            updateRecentDetections(detections);
+        });
+
+        function startStream() {
+            const preset = document.getElementById('presetSelect').value;
+
+            fetch('/api/start_enhanced_stream', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({preset: preset})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    streamRunning = true;
+                    document.getElementById('startBtn').style.display = 'none';
+                    document.getElementById('stopBtn').style.display = 'inline-block';
+                    updateSystemStatus(data.system_status);
+
+                    // Update video feed
+                    document.getElementById('videoFeed').src = '/enhanced_video_feed?' + new Date().getTime();
+
+                    console.log('Enhanced stream started with preset:', preset);
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Failed to start stream');
+            });
+        }
+
+        function stopStream() {
+            fetch('/api/stop_enhanced_stream', {method: 'POST'})
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    streamRunning = false;
+                    document.getElementById('startBtn').style.display = 'inline-block';
+                    document.getElementById('stopBtn').style.display = 'none';
+
+                    // Clear stats
+                    clearStats();
+                    console.log('Enhanced stream stopped');
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            });
+        }
+
+        function changePreset() {
+            if (streamRunning) {
+                const preset = document.getElementById('presetSelect').value;
+                fetch('/api/change_preset', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({preset: preset})
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        console.log('Preset changed to:', preset);
+                        // Refresh video feed
+                        document.getElementById('videoFeed').src = '/enhanced_video_feed?' + new Date().getTime();
+                    } else {
+                        alert('Error changing preset: ' + data.error);
+                    }
+                });
+            }
+        }
+
+        function resetStats() {
+            fetch('/api/reset_statistics', {method: 'POST'})
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('Statistics reset');
+                    clearStats();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            });
+        }
+
+        function updateStats(stats) {
+            // Update unique plates
+            document.getElementById('uniquePlates').textContent = stats.unique_plates || 0;
+            document.getElementById('currentVisible').textContent = stats.current_visible || 0;
+
+            // Update detection methods
+            const methods = stats.detection_methods || {};
+            document.getElementById('yoloCount').textContent = methods.plate_yolo || 0;
+            document.getElementById('ocrCount').textContent = methods.ocr_fallback || 0;
+
+            // Update performance
+            const performance = stats.performance || {};
+            document.getElementById('fps').textContent = (performance.avg_fps || 0).toFixed(1);
+            document.getElementById('avgProcessing').textContent = (performance.avg_processing_time || 0).toFixed(1) + 'ms';
+            document.getElementById('efficiency').textContent = (performance.detection_efficiency || 0).toFixed(1) + '%';
+
+            // Update system status
+            updateSystemStatus(stats.system_status);
+        }
+
+        function updateSystemStatus(status) {
+            if (!status) return;
+
+            const components = status.components_status || {};
+
+            // YOLO Status
+            const yoloElement = document.getElementById('yoloStatus');
+            if (components.license_plate_yolo) {
+                yoloElement.textContent = 'YOLO: Active';
+                yoloElement.className = 'status-item status-ok';
+            } else {
+                yoloElement.textContent = 'YOLO: OCR Mode';
+                yoloElement.className = 'status-item status-warning';
+            }
+
+            // Counter Status
+            const counterElement = document.getElementById('counterStatus');
+            if (status.stable_counter_ready) {
+                counterElement.textContent = 'Counter: Ready';
+                counterElement.className = 'status-item status-ok';
+            } else {
+                counterElement.textContent = 'Counter: Error';
+                counterElement.className = 'status-item status-error';
+            }
+
+            // Stream Status
+            const streamElement = document.getElementById('streamStatus');
+            if (status.stream_active) {
+                streamElement.textContent = 'Stream: Active';
+                streamElement.className = 'status-item status-ok';
+            } else {
+                streamElement.textContent = 'Stream: Stopped';
+                streamElement.className = 'status-item status-warning';
+            }
+        }
+
+        function updateRecentDetections(detections) {
+            const container = document.getElementById('recentDetections');
+
+            if (!detections || detections.length === 0) return;
+
+            let html = '';
+            detections.slice(0, 5).forEach(detection => {
+                const timestamp = new Date(detection.timestamp * 1000).toLocaleTimeString();
+                html += `
+                    <div class="detection-item">
+                        <div class="detection-text">${detection.text}</div>
+                        <div class="detection-meta">
+                            Method: ${detection.method} |
+                            Confidence: ${(detection.confidence * 100).toFixed(1)}% |
+                            ${timestamp}
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function clearStats() {
+            document.getElementById('uniquePlates').textContent = '0';
+            document.getElementById('currentVisible').textContent = '0';
+            document.getElementById('yoloCount').textContent = '0';
+            document.getElementById('ocrCount').textContent = '0';
+            document.getElementById('fps').textContent = '0';
+            document.getElementById('avgProcessing').textContent = '0ms';
+            document.getElementById('efficiency').textContent = '0%';
+            document.getElementById('recentDetections').innerHTML = '<div class="loading">Start stream to see detections...</div>';
+        }
+
+        // Load system health on page load
+        window.onload = function() {
+            fetch('/api/system_health')
+            .then(response => response.json())
+            .then(data => {
+                if (data.overall !== 'stopped') {
+                    updateSystemStatus(data);
+                }
+            });
+        };
+    </script>
+</body>
+</html>
