@@ -606,6 +606,9 @@
                                 <button class="btn btn-danger-elegant btn-elegant flex-fill" id="stopBtn" disabled>
                                     <i class="bi bi-stop-fill me-1"></i> Stop
                                 </button>
+                                <button class="btn btn-info-elegant btn-elegant" id="testBtn" title="Test Source">
+                                    <i class="bi bi-search"></i>
+                                </button>
                                 <button class="btn btn-secondary-elegant btn-elegant" id="screenshotBtn" title="Screenshot">
                                     <i class="bi bi-camera"></i>
                                 </button>
@@ -937,6 +940,7 @@
         const statusText = document.getElementById('statusText');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
+        const testBtn = document.getElementById('testBtn');
         const screenshotBtn = document.getElementById('screenshotBtn');
         const sourceInput = document.getElementById('sourceInput');
         const detectionsList = document.getElementById('detectionsList');
@@ -1067,18 +1071,60 @@
             });
         });
         
+        testBtn.addEventListener('click', function() {
+            const source = sourceInput.value.trim();
+            if (!source) {
+                showAlert('Please enter a video source to test', 'warning');
+                return;
+            }
+
+            // Show loading state
+            const originalIcon = testBtn.innerHTML;
+            testBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+            testBtn.disabled = true;
+
+            fetch('/api/test_source', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({source: source})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(`✅ Source test successful: ${data.resolution} - ${data.message}`, 'success');
+                    console.log('Source test result:', data);
+                } else {
+                    showAlert(`❌ Source test failed: ${data.message}`, 'danger');
+                    if (data.details) {
+                        showAlert(`Details: ${data.details}`, 'warning');
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Test source error:', error);
+                showAlert('Network error while testing source', 'danger');
+            })
+            .finally(() => {
+                // Restore button state
+                testBtn.innerHTML = originalIcon;
+                testBtn.disabled = false;
+            });
+        });
+
         screenshotBtn.addEventListener('click', function() {
             // Check if stream is running
             if (!statusIndicator.classList.contains('status-running')) {
                 showAlert('Stream must be running to take screenshot', 'warning');
                 return;
             }
-            
+
             // Show loading state
             const originalIcon = screenshotBtn.innerHTML;
             screenshotBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
             screenshotBtn.disabled = true;
-            
+
             fetch('/api/screenshot', {
                 method: 'POST'
             })

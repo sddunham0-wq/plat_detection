@@ -17,6 +17,7 @@ from utils.plate_detector import LicensePlateDetector, PlateDetection
 from utils.robust_plate_detector import RobustPlateDetector
 from utils.yolo_plate_detector import YOLOPlateDetector
 from utils.hybrid_plate_detector import HybridPlateDetector
+from unified_plate_detector import create_unified_detector
 from utils.yolo_detector import YOLOObjectDetector, create_yolo_detector
 from utils.tracking_manager import TrackingManager
 from utils.plate_counter_manager import PlateCounterManager, create_plate_counter_manager
@@ -27,8 +28,9 @@ from config import TrackingConfig
 
 @dataclass
 class StreamFrame:
-    """Frame data untuk web streaming"""
-    image_base64: str
+    """Struktur data untuk menyimpan frame yang telah diproses"""
+    annotated_frame: np.ndarray  # Frame dengan anotasi (untuk disimpan/dianalisis)
+    annotated_frame_jpeg: bytes  # Frame dalam format JPEG (untuk streaming)
     timestamp: float
     frame_id: int
     detections: list
@@ -41,7 +43,7 @@ class HeadlessStreamManager:
     Manager untuk headless video streaming ke browser
     """
     
-    def __init__(self, source: str, database: PlateDatabase = None, enable_yolo: bool = True, enable_tracking: bool = True):
+    def __init__(self, source: str, database: PlateDatabase = None, enable_yolo: bool = True, enable_tracking: bool = True, custom_detector=None):
         """
         Initialize stream manager
         
@@ -50,6 +52,7 @@ class HeadlessStreamManager:
             database: Database instance untuk save results
             enable_yolo: Enable YOLOv8 object detection
             enable_tracking: Enable object tracking system
+            custom_detector: Obyek detektor kustom untuk menggantikan yang default
         """
         self.source = source
         self.database = database or PlateDatabase()
@@ -60,33 +63,28 @@ class HeadlessStreamManager:
         # Components
         self.video_stream = None
 
-        # Initialize Enhanced Plate Detector dengan streaming config dan fallback ke Hybrid
-        try:
-            # Try no-lag config first for optimal performance
-            nolag_config = 'enhanced_detection_nolag_config.ini'
-            streaming_config = 'enhanced_detection_streaming_config.ini'
+        # --- PERBAIKAN: Gunakan custom_detector jika diberikan ---
+        if custom_detector:
+            self.plate_detector = custom_detector
+            self.logger.info(f"✅ Using custom detector: {type(custom_detector).__name__}")
+            self.enhanced_mode = hasattr(custom_detector, 'draw_enhanced_results')
+        else:
+            # Fallback ke detektor default jika tidak ada yang kustom
+            try:
+                # Use optimized unified detector with auto-configuration
+                self.plate_detector = create_unified_detector("rtsp_cctv")  # Optimized untuk streaming
+                self.logger.info("✅ Unified Plate Detector initialized (streaming optimized)")
+                self.enhanced_mode = True
 
-            if os.path.exists(nolag_config):
-                self.plate_detector = EnhancedPlateDetector(nolag_config)
-                self.logger.info("✅ Enhanced Plate Detector initialized with NO-LAG config")
-            elif os.path.exists(streaming_config):
-                self.plate_detector = EnhancedPlateDetector(streaming_config)
-                self.logger.info("✅ Enhanced Plate Detector initialized with streaming config")
-            else:
-                self.plate_detector = EnhancedPlateDetector('enhanced_detection_config.ini')
-                self.logger.info("✅ Enhanced Plate Detector initialized with default config")
-
-            self.enhanced_mode = True
-
-            # Optimize untuk streaming performance
-            if hasattr(self.plate_detector, 'enhanced_conf_threshold'):
-                self.plate_detector.enhanced_conf_threshold = 0.3  # Higher threshold untuk stability
-                self.plate_detector.use_secondary = False  # Disable secondary model untuk speed
-                self.plate_detector.use_tertiary = False  # Disable tertiary model untuk speed
-        except Exception as e:
-            self.logger.warning(f"Enhanced detector failed, fallback to Hybrid: {e}")
-            self.plate_detector = HybridPlateDetector(streaming_mode=True)  # Fallback
-            self.enhanced_mode = False
+            except Exception as e:
+                self.logger.warning(f"Unified detector failed, fallback to Hybrid: {e}")
+                try:
+                    self.plate_detector = HybridPlateDetector(streaming_mode=True)
+                    self.logger.info("✅ Hybrid Plate Detector initialized as fallback")
+                    self.enhanced_mode = False
+                except Exception as e2:
+                    self.logger.error(f"FATAL: Failed to initialize any plate detector: {e2}")
+                    self.plate_detector = None # Critical error
 
         self.yolo_detector = None
         self.yolo_enabled = enable_yolo
@@ -319,19 +317,25 @@ class HeadlessStreamManager:
                 plate_detections = []
                 enhanced_results = []
 
-                if self.enhanced_mode:
-                    try:
-                        # Use enhanced detection method
-                        enhanced_results = self.plate_detector.process_frame_enhanced(frame)
+                # Use unified detector with optimized performance
+                try:
+                    # Check if unified detector
+                    if hasattr(self.plate_detector, 'detect'):
+                        # Unified detector dengan 69x performance improvement
+                        plate_detections = self.plate_detector.detect(frame)
+                        self.logger.debug(f"Unified detection: {len(plate_detections)} plates found")
 
-                        # Convert enhanced results ke format yang compatible dengan tracking
+                    elif self.enhanced_mode and hasattr(self.plate_detector, 'process_frame_enhanced'):
+                        # Enhanced detector fallback
+                        enhanced_results = self.plate_detector.process_frame_enhanced(frame)
+                        plate_detections = []
+
+                        # Convert enhanced results ke format yang compatible
                         for result in enhanced_results:
-                            # Create PlateDetection object dari enhanced result
-                            # Extract region untuk processed_image
                             try:
                                 x, y, w, h = result['plate_bbox']
                                 plate_region = frame[y:y+h, x:x+w] if len(frame.shape) == 3 else frame[y:y+h, x:x+w]
-                                if plate_region.size == 0:  # Empty region fallback
+                                if plate_region.size == 0:
                                     plate_region = np.zeros((50, 150, 3), dtype=np.uint8)
                             except:
                                 plate_region = np.zeros((50, 150, 3), dtype=np.uint8)
@@ -342,32 +346,18 @@ class HeadlessStreamManager:
                                 bbox=result['plate_bbox'],
                                 processed_image=plate_region,
                                 timestamp=time.time(),
-                                vehicle_type=result['vehicle_type'],
-                                detection_method=result['detection_method']
+                                vehicle_type=result.get('vehicle_type', 'unknown'),
+                                detection_method=result.get('detection_method', 'enhanced')
                             )
                             plate_detections.append(detection)
 
-                    except Exception as e:
-                        self.logger.warning(f"Enhanced detection failed for frame, fallback to hybrid: {e}")
-                        # Emergency fallback ke hybrid untuk frame ini
-                        try:
-                            if hasattr(self.plate_detector, 'detect_plates'):
-                                plate_detections = self.plate_detector.detect_plates(frame)
-                            else:
-                                # Create backup hybrid detector
-                                backup_detector = HybridPlateDetector(streaming_mode=True)
-                                plate_detections = backup_detector.detect_plates(frame)
-                        except Exception as e2:
-                            self.logger.error(f"Backup detection also failed: {e2}")
-                            plate_detections = []
-
-                else:
-                    # Fallback ke hybrid detection
-                    try:
+                    else:
+                        # Hybrid detector fallback
                         plate_detections = self.plate_detector.detect_plates(frame)
-                    except Exception as e:
-                        self.logger.error(f"Hybrid detection failed: {e}")
-                        plate_detections = []
+
+                except Exception as e:
+                    self.logger.error(f"Detection failed: {e}")
+                    plate_detections = []
                 
                 # Process plates dengan ULTRA-STABLE counter system
                 # Use both counters untuk comprehensive analysis
@@ -564,11 +554,13 @@ class HeadlessStreamManager:
                                         f"Session={legacy_counts['total_unique_plates_session']}")
                 
                 # Convert frame to base64
-                frame_base64 = self._frame_to_base64(annotated_frame)
+                # --- PERBAIKAN: Encode ke JPEG bytes, bukan base64 ---
+                frame_jpeg_bytes = self._frame_to_jpeg_bytes(annotated_frame)
                 
                 # Create stream frame
                 stream_frame = StreamFrame(
-                    image_base64=frame_base64,
+                    annotated_frame=annotated_frame,
+                    annotated_frame_jpeg=frame_jpeg_bytes,
                     timestamp=time.time(),
                     frame_id=frame_count,
                     detections=[{

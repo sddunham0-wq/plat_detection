@@ -44,6 +44,8 @@ python test_kamera.py
 python -c "import cv2; cap = cv2.VideoCapture(0); print('Camera OK!' if cap.isOpened() else 'Camera Failed')"
 ```
 
+
+
 ### 🚀 **Command untuk Windows:**
 
 ```bash

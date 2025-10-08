@@ -1,6 +1,7 @@
 """
 Headless Stream Server dengan Flask
 Live streaming CCTV + detection results ke browser
+Dioptimalkan untuk performa streaming yang lancar.
 """
 
 import os
@@ -11,15 +12,13 @@ import cv2
 from flask import Flask, render_template, Response, jsonify, request
 from flask_socketio import SocketIO, emit
 import threading
+from waitress  import serve
 from stream_manager import HeadlessStreamManager
 from database import PlateDatabase
 from config import CCTVConfig
 from utils.yolo_detector import check_and_install_yolo
 
 # Enhanced Hybrid imports
-import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
-sys.path.append(os.path.join(os.path.dirname(__file__), 'config'))
 from utils.enhanced_hybrid_stream_manager import create_enhanced_stream_manager
 
 # Setup Flask app
@@ -64,42 +63,137 @@ def get_recent_detections():
 def start_stream():
     """Start streaming"""
     global stream_manager
-    
+
     try:
         data = request.get_json()
         source = data.get('source', CCTVConfig.DEFAULT_RTSP_URL)
-        
+
         if stream_manager and stream_manager.is_running():
             return jsonify({'error': 'Stream already running'})
-        
+
+        logger.info(f"🚀 Attempting to start stream with source: {source}")
+
+        # --- PERBAIKAN: Hapus custom_detector, biarkan StreamManager menggunakan detektor default yang terpadu ---
+        # Ini memungkinkan penggunaan UnifiedPlateDetector yang lebih canggih secara otomatis.
         stream_manager = HeadlessStreamManager(source, database, enable_tracking=True)
-        
+        logger.info("🚀 Starting stream with default unified detector for optimal performance.")
+
         # Add callbacks
         stream_manager.add_frame_callback(on_new_frame)
         stream_manager.add_detection_callback(on_new_detection)
-        
+
         if stream_manager.start():
-            return jsonify({'success': True, 'message': 'Stream started'})
+            logger.info("✅ Stream started successfully")
+            return jsonify({
+                'success': True,
+                'message': 'Stream started successfully',
+                'source': source
+            })
         else:
-            return jsonify({'error': 'Failed to start stream'})
-            
+            logger.error("❌ Failed to start stream - video source connection failed")
+            # Clean up failed stream manager
+            if stream_manager:
+                stream_manager.stop()
+                stream_manager = None
+            return jsonify({
+                'error': 'Failed to start stream - check video source connection',
+                'details': 'Unable to connect to video source. Please verify the RTSP URL or try a different source.',
+                'source': source
+            })
+
     except Exception as e:
-        return jsonify({'error': str(e)})
+        logger.error(f"❌ Error starting stream: {str(e)}")
+        # Clean up on error
+        if stream_manager:
+            try:
+                stream_manager.stop()
+            except:
+                pass
+            stream_manager = None
+        return jsonify({
+            'error': f'Stream start failed: {str(e)}',
+            'details': 'An unexpected error occurred while starting the stream.'
+        })
 
 @app.route('/api/stop_stream', methods=['POST'])
 def stop_stream():
     """Stop streaming"""
     global stream_manager
-    
+
     try:
         if stream_manager:
             stream_manager.stop()
             stream_manager = None
-        
+
+        logger.info("🛑 Stream stopped successfully")
         return jsonify({'success': True, 'message': 'Stream stopped'})
-        
+
     except Exception as e:
+        logger.error(f"❌ Error stopping stream: {str(e)}")
         return jsonify({'error': str(e)})
+
+@app.route('/api/test_source', methods=['POST'])
+def test_source():
+    """Test video source connection"""
+    try:
+        data = request.get_json()
+        source = data.get('source', CCTVConfig.DEFAULT_RTSP_URL)
+        timeout = data.get('timeout', 5)  # Default 5 second test
+
+        logger.info(f"🧪 Testing video source: {source}")
+
+        # Determine source type and create appropriate stream
+        if isinstance(source, str) and source.startswith(('rtsp://', 'http://')):
+            from utils.video_stream import RTSPStream
+            test_stream = RTSPStream(source, buffer_size=1)
+        elif isinstance(source, int) or (isinstance(source, str) and source.isdigit()):
+            from utils.video_stream import WebcamStream
+            test_stream = WebcamStream(int(source), buffer_size=1)
+        else:
+            from utils.video_stream import VideoStream
+            test_stream = VideoStream(source, buffer_size=1)
+
+        # Try to start the stream
+        if test_stream.start():
+            # Wait a bit and try to get a frame
+            import time
+            time.sleep(1)
+
+            ret, frame = test_stream.get_latest_frame()
+            test_stream.stop()
+
+            if ret and frame is not None:
+                height, width = frame.shape[:2]
+                logger.info(f"✅ Source test successful: {width}x{height}")
+                return jsonify({
+                    'success': True,
+                    'message': 'Video source is accessible',
+                    'resolution': f'{width}x{height}',
+                    'source': source
+                })
+            else:
+                logger.warning(f"⚠️ Source started but no frame received: {source}")
+                return jsonify({
+                    'success': False,
+                    'message': 'Source started but no frames received',
+                    'source': source
+                })
+        else:
+            logger.error(f"❌ Failed to connect to source: {source}")
+            return jsonify({
+                'success': False,
+                'message': 'Cannot connect to video source',
+                'details': 'Check URL, network connection, or camera status',
+                'source': source
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Error testing source: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'Test failed: {str(e)}',
+            'source': source if 'source' in locals() else 'unknown'
+        })
 
 @app.route('/api/screenshot', methods=['POST'])
 def take_screenshot():
@@ -113,23 +207,17 @@ def take_screenshot():
         # Get current frame
         current_frame = stream_manager.get_current_frame()
         
-        if not current_frame or not current_frame.image_base64:
-            return jsonify({'error': 'No frame available'})
+        if not current_frame or current_frame.annotated_frame is None:
+            return jsonify({'error': 'No frame available for screenshot'})
         
-        # Decode base64 to image
-        import base64
-        import cv2
-        import numpy as np
+        # --- PERBAIKAN: Gunakan frame numpy langsung, bukan base64 ---
+        frame = current_frame.annotated_frame
+        
         from datetime import datetime
         from config import SystemConfig
         
-        # Decode base64
-        frame_bytes = base64.b64decode(current_frame.image_base64)
-        nparr = np.frombuffer(frame_bytes, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
         if frame is None:
-            return jsonify({'error': 'Failed to decode frame'})
+            return jsonify({'error': 'Invalid frame data'})
         
         # Ensure output folder exists
         import os
@@ -256,14 +344,11 @@ def generate_frames():
             if stream_manager and stream_manager.is_running():
                 current_frame = stream_manager.get_current_frame()
                 
-                if current_frame and current_frame.image_base64:
-                    # Decode base64 to bytes
-                    import base64
-                    frame_bytes = base64.b64decode(current_frame.image_base64)
-                    
+                # --- PERBAIKAN: Langsung gunakan frame JPEG yang sudah di-encode ---
+                if current_frame and current_frame.annotated_frame_jpeg:
                     # Create proper MJPEG frame
                     yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                           b'Content-Type: image/jpeg\r\n\r\n' + current_frame.annotated_frame_jpeg + b'\r\n')
                 else:
                     time.sleep(0.1)
             else:
@@ -279,25 +364,6 @@ def generate_frames():
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + error_bytes + b'\r\n')
             time.sleep(1)
-
-def create_placeholder_frame():
-    """Create placeholder frame saat tidak streaming"""
-    import cv2
-    import numpy as np
-    import base64
-    
-    # Create simple placeholder
-    frame = np.ones((480, 640, 3), dtype=np.uint8) * 50
-    cv2.putText(frame, "No Stream", (200, 240), 
-                cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 3)
-    cv2.putText(frame, "Click Start to begin", (150, 300), 
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (200, 200, 200), 2)
-    
-    # Encode to base64
-    _, buffer = cv2.imencode('.jpg', frame)
-    frame_base64 = base64.b64encode(buffer).decode('utf-8')
-    
-    return frame_base64
 
 def create_placeholder_frame_bytes():
     """Create placeholder frame as bytes"""
@@ -966,14 +1032,14 @@ def stats_broadcaster():
             logger.error(f"Error broadcasting stats: {str(e)}")
             time.sleep(5)
 
-def main(source=None, host='0.0.0.0', port=5000, debug=False, no_yolo=False):
+def main(source=None, host='0.0.0.0', port=5010, debug=False, no_yolo=False):
     """
     Main function untuk run headless stream server dengan Enhanced Hybrid YOLO
 
     Args:
         source: Video source (default: dari config)
         host: Server host (default: 0.0.0.0)
-        port: Server port (default: 5000)
+        port: Server port (default: 5010)
         debug: Debug mode
         no_yolo: Disable YOLO untuk faster startup
     """
@@ -1038,33 +1104,29 @@ def main(source=None, host='0.0.0.0', port=5000, debug=False, no_yolo=False):
         except Exception as e:
             logger.error(f"Error auto-starting stream: {str(e)}")
     
-    try:
-        # Run Flask-SocketIO server
-        socketio.run(app, 
-                    host=host, 
-                    port=port, 
-                    debug=debug,
-                    use_reloader=False,
-                    allow_unsafe_werkzeug=True)  # Allow for development
-        
-    except KeyboardInterrupt:
-        print("\n🛑 Shutting down server...")
-        
-        if stream_manager:
-            stream_manager.stop()
-        
-        print("✅ Server stopped")
+    # --- PERBAIKAN: Gunakan 'waitress' sebagai production-ready server ---
+    # 'waitress' jauh lebih efisien untuk menangani koneksi bersamaan daripada server debug Flask.
+    # Ini akan membuat streaming video jauh lebih lancar.
+    logger.info(f"Starting production-ready server with Waitress on http://{host}:{port}")
+    serve(socketio.run(app), host=host, port=port)
 
 if __name__ == "__main__":
     import argparse
     
+    # --- PERBAIKAN: Tambahkan dependensi waitress ---
+    try:
+        import waitress
+    except ImportError:
+        print("Waitress not found. Installing... pip install waitress")
+        os.system('pip install waitress')
+
     parser = argparse.ArgumentParser(description='Headless CCTV Streaming Server')
     parser.add_argument('--source', '-s', type=str, 
                         help='Video source (RTSP URL, webcam index, file)')
     parser.add_argument('--host', default='0.0.0.0', 
                         help='Server host (default: 0.0.0.0)')
-    parser.add_argument('--port', type=int, default=5000, 
-                        help='Server port (default: 5000)')
+    parser.add_argument('--port', type=int, default=5010, 
+                        help='Server port (default: 5010)')
     parser.add_argument('--debug', action='store_true', 
                         help='Enable debug mode')
     parser.add_argument('--no-yolo', action='store_true',
