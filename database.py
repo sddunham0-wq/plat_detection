@@ -61,23 +61,92 @@ class PlateDatabase:
         except Exception as e:
             self.logger.error(f"Error initializing database: {str(e)}")
             raise
-    
-    def save_detection(self, detection: PlateDetection, source_info: str = "unknown", 
+
+    def _calculate_text_similarity(self, text1: str, text2: str) -> float:
+        """
+        Calculate similarity between two texts using Levenshtein-based ratio
+
+        Args:
+            text1: First text
+            text2: Second text
+
+        Returns:
+            float: Similarity score (0.0 to 1.0), 1.0 = identical
+        """
+        if not text1 or not text2:
+            return 0.0
+
+        # Normalize texts
+        t1 = text1.upper().strip()
+        t2 = text2.upper().strip()
+
+        if t1 == t2:
+            return 1.0
+
+        # Use difflib for similarity calculation
+        from difflib import SequenceMatcher
+        return SequenceMatcher(None, t1, t2).ratio()
+
+    def _is_duplicate_recent(self, plate_text: str, time_window: int = 30) -> bool:
+        """
+        Check if similar plate was detected in recent time window
+
+        Args:
+            plate_text: Plate text to check
+            time_window: Time window in seconds (default: 30)
+
+        Returns:
+            bool: True if duplicate found
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+
+                # Query recent detections dalam time window
+                cursor.execute("""
+                    SELECT plate_text
+                    FROM detections
+                    WHERE timestamp >= datetime('now', 'localtime', ? || ' seconds')
+                """, (f'-{time_window}',))
+
+                recent_plates = cursor.fetchall()
+
+                # Check similarity dengan each recent plate
+                for (recent_text,) in recent_plates:
+                    similarity = self._calculate_text_similarity(plate_text, recent_text)
+
+                    # If similarity > 80%, consider it a duplicate
+                    if similarity > 0.8:
+                        self.logger.info(f"Duplicate detected: '{plate_text}' ≈ '{recent_text}' (similarity: {similarity:.2f})")
+                        return True
+
+                return False
+
+        except Exception as e:
+            self.logger.error(f"Error checking duplicates: {str(e)}")
+            return False  # On error, allow save
+
+    def save_detection(self, detection: PlateDetection, source_info: str = "unknown",
                       save_image: bool = True) -> int:
         """
-        Simpan hasil deteksi ke database
-        
+        Simpan hasil deteksi ke database dengan duplicate filtering
+
         Args:
             detection: PlateDetection object
             source_info: Info sumber video (RTSP URL, webcam, dll)
             save_image: Apakah simpan gambar plat
-            
+
         Returns:
-            int: ID record yang tersimpan
+            int: ID record yang tersimpan, or -1 if duplicate/skipped
         """
         try:
+            # Check for duplicate plates dalam 30 detik terakhir
+            if self._is_duplicate_recent(detection.text, time_window=30):
+                self.logger.info(f"Skipping duplicate plate: {detection.text}")
+                return -1
+
             image_path = None
-            
+
             # Save image jika diminta
             if save_image and detection.processed_image is not None:
                 image_path = self._save_plate_image(detection)

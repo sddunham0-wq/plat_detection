@@ -32,15 +32,15 @@ class YOLOObjectDetector:
     YOLOv8 Object Detector untuk live streaming
     """
     
-    def __init__(self, model_path='yolov8s.pt', confidence=0.65, iou_threshold=0.45, max_detections=8):
+    def __init__(self, model_path='yolov8n.pt', confidence=0.4, iou_threshold=0.5, max_detections=15):
         """
-        Initialize YOLOv8 detector dengan optimized parameters untuk stable plate detection
+        Initialize YOLOv8 detector dengan optimized parameters untuk CCTV
 
         Args:
-            model_path: Path to YOLO model (default: yolov8s.pt - balanced performance)
-            confidence: Confidence threshold (default: 0.65 - reduced false positives)
-            iou_threshold: IoU threshold for NMS (default: 0.45 - optimal suppression)
-            max_detections: Maximum detections per frame (default: 8 - focused detection)
+            model_path: Path to YOLO model
+            confidence: Confidence threshold (default: 0.4 - optimized untuk CCTV)
+            iou_threshold: IoU threshold for NMS (default: 0.5 - better duplicate removal)
+            max_detections: Maximum detections per frame (default: 15 - optimized untuk speed)
         """
         self.model_path = model_path
         self.confidence = confidence
@@ -58,12 +58,12 @@ class YOLOObjectDetector:
             7: 'truck'
         }
 
-        # Class-specific confidence thresholds untuk stable detection
+        # Class-specific confidence thresholds untuk Indonesian vehicles
         self.class_confidence_thresholds = {
-            2: 0.7,   # car - increased untuk stability
-            3: 0.65,  # motorcycle - increased untuk consistency
-            5: 0.75,  # bus - higher threshold
-            7: 0.7    # truck - increased untuk stability
+            2: 0.4,   # car - standard threshold
+            3: 0.35,  # motorcycle - lower threshold (lebih banyak motor di Indonesia)
+            5: 0.5,   # bus - higher threshold (less common, need higher confidence)
+            7: 0.45   # truck - standard threshold
         }
         
         # COCO class names
@@ -170,27 +170,13 @@ class YOLOObjectDetector:
             max_detections = min(25, self.max_detections * 2) if self.crowded_scene_mode else self.max_detections
 
             # Run YOLOv8 detection with adaptive parameters
-            # When vehicles_only=True, only detect vehicle classes to prevent person detection lag
-            if vehicles_only:
-                # Only detect vehicle classes: car(2), motorcycle(3), bus(5), truck(7)
-                vehicle_class_ids = list(self.vehicle_classes.keys())  # [2, 3, 5, 7]
-                results = self.model(
-                    frame,
-                    conf=conf_threshold,
-                    iou=iou_threshold,
-                    max_det=max_detections,
-                    classes=vehicle_class_ids,  # Exclude person(0) and other non-vehicle classes
-                    verbose=False
-                )
-            else:
-                # Detect all classes when vehicles_only=False
-                results = self.model(
-                    frame,
-                    conf=conf_threshold,
-                    iou=iou_threshold,
-                    max_det=max_detections,
-                    verbose=False
-                )
+            results = self.model(
+                frame,
+                conf=conf_threshold,
+                iou=iou_threshold,
+                max_det=max_detections,
+                verbose=False
+            )
             
             detections = []
             
@@ -215,8 +201,7 @@ class YOLOObjectDetector:
                             if confidence < min_confidence:
                                 continue
 
-                        # Note: vehicles_only filtering now handled at model level via classes parameter
-                        # This post-processing filter is kept as safety backup for edge cases
+                        # Filter by vehicles if requested
                         if vehicles_only and not is_vehicle:
                             continue
 
@@ -795,13 +780,11 @@ class YOLOObjectDetector:
 
                 # Adaptive confidence untuk different scales - smaller scales need higher confidence
                 conf_threshold = self.confidence * (1.2 + 0.3 * (1 - scale))
-                # Only detect motorcycles (class 3) for crowding detection to prevent person detection lag
                 quick_results = self.model(
                     scaled_frame,
                     conf=conf_threshold,
                     iou=0.6,  # Higher IoU untuk avoid false crowding
                     max_det=int(30 / scale),  # More detections for smaller scales
-                    classes=[3],  # Only motorcycle class to avoid lag from person detection
                     verbose=False
                 )
 

@@ -39,32 +39,37 @@ class OCREnsemble:
         
         self.logger = logging.getLogger(__name__)
         
-        # OCR Methods configuration
+        # OCR Methods configuration - OPTIMIZED for CCTV conditions
         self.ocr_methods = {
-            'standard': {
-                'config': '--psm 8 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
-                'language': 'ind+eng',
-                'weight': 1.0
+            'cctv_block': {
+                'config': '--psm 6 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+                'language': 'eng',
+                'weight': 1.5  # Higher weight for CCTV conditions
             },
             'single_line': {
                 'config': '--psm 7 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
                 'language': 'ind+eng',
-                'weight': 1.2
+                'weight': 1.3  # Increased weight for distant plates
             },
             'single_word': {
                 'config': '--psm 8 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
                 'language': 'eng',
-                'weight': 1.0
+                'weight': 1.1  # Slightly increased
             },
             'raw_line': {
                 'config': '--psm 13 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
                 'language': 'ind+eng',
-                'weight': 0.8
+                'weight': 1.0  # Increased from 0.8
             },
-            'character_level': {
-                'config': '--psm 10 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+            'tesseract_eng': {
+                'config': '--psm 6 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
                 'language': 'eng',
-                'weight': 0.9
+                'weight': 1.2
+            },
+            'tesseract_indonesia': {
+                'config': '--psm 7 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+                'language': 'ind',
+                'weight': 1.1
             }
         }
         
@@ -195,13 +200,32 @@ class OCREnsemble:
             # Extract text dan confidence
             texts = []
             confidences = []
-            
+
             for i, text in enumerate(ocr_data['text']):
                 if text.strip():
                     conf = float(ocr_data['conf'][i])
                     if conf > 10:  # Very low threshold untuk ensemble
                         texts.append(text.strip())
                         confidences.append(conf)
+
+            # Fallback: jika image_to_data tidak menghasilkan text, coba image_to_string
+            if not texts:
+                try:
+                    fallback_text = pytesseract.image_to_string(
+                        processed_image,
+                        config=method_config['config'],
+                        lang=method_config['language']
+                    ).strip()
+
+                    if fallback_text:
+                        # Clean text
+                        clean_text = ''.join(c for c in fallback_text if c.isalnum())
+                        if clean_text:
+                            texts = [clean_text]
+                            confidences = [70.0]  # Default confidence untuk fallback
+
+                except Exception as fallback_error:
+                    self.logger.debug(f'Fallback OCR juga gagal: {fallback_error}')
             
             if texts:
                 full_text = ' '.join(texts)
@@ -338,8 +362,65 @@ class OCREnsemble:
         # Return jika reasonable length
         if 5 <= len(cleaned) <= 10:
             return cleaned
-        
+
         return ""
+
+    def smart_indonesian_validation(self, text: str, confidence: float) -> Tuple[bool, float]:
+        """
+        Smart validation untuk Indonesian plates dengan selective rules
+
+        Args:
+            text: Cleaned plate text
+            confidence: Original confidence score
+
+        Returns:
+            Tuple[bool, float]: (is_valid, adjusted_confidence)
+        """
+        from config import IndonesianPlateConfig
+
+        # Skip validation untuk low confidence atau short text
+        if (confidence < IndonesianPlateConfig.SMART_VALIDATION_MIN_CONFIDENCE or
+            len(text) < IndonesianPlateConfig.SMART_VALIDATION_MIN_LENGTH):
+            return True, confidence  # Allow through without validation
+
+        adjusted_confidence = confidence
+
+        # Check Indonesian plate patterns
+        pattern_match = False
+        for pattern in IndonesianPlateConfig.PLATE_PATTERNS:
+            if re.match(pattern, text):
+                pattern_match = True
+                adjusted_confidence += IndonesianPlateConfig.PATTERN_MATCH_BOOST
+                break
+
+        # Check regional codes
+        regional_match = False
+        if IndonesianPlateConfig.ENABLE_REGIONAL_CODE_BOOST:
+            for code in IndonesianPlateConfig.REGIONAL_CODES:
+                if text.startswith(code):
+                    regional_match = True
+                    adjusted_confidence += IndonesianPlateConfig.REGIONAL_CODE_BOOST
+                    break
+
+        # Smart validation logic
+        if IndonesianPlateConfig.ENABLE_SMART_VALIDATION:
+            # High confidence plates pass regardless of pattern
+            if confidence >= 70.0:
+                return True, adjusted_confidence
+
+            # Medium confidence plates need pattern OR regional code
+            if confidence >= 40.0 and (pattern_match or regional_match):
+                return True, adjusted_confidence
+
+            # Low-medium confidence plates need both pattern AND regional code
+            if confidence >= 25.0 and pattern_match and regional_match:
+                return True, adjusted_confidence
+
+            # Very low confidence plates are rejected
+            if confidence < 25.0 and not (pattern_match and regional_match):
+                return False, adjusted_confidence
+
+        return True, adjusted_confidence
     
     def apply_character_corrections(self, text: str) -> List[str]:
         """
@@ -467,43 +548,139 @@ class OCREnsemble:
         
         return best_text, best_confidence
     
-    def ensemble_ocr(self, image: np.ndarray, methods: List[str] = None) -> Tuple[str, float, Dict]:
+    def _create_exposure_variants(self, image: np.ndarray) -> List[Tuple[np.ndarray, str]]:
         """
-        Main ensemble OCR function
-        
+        Create multiple exposure/brightness variants for challenging lighting conditions
+
+        Args:
+            image: Input grayscale image
+
+        Returns:
+            List of (variant_image, variant_name) tuples
+        """
+        variants = []
+
+        try:
+            # Ensure grayscale
+            if len(image.shape) == 3:
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = image.copy()
+
+            # Original (baseline)
+            variants.append((gray.copy(), "original"))
+
+            # Variant 1: Brightened (for dark plates)
+            brightened = cv2.convertScaleAbs(gray, alpha=1.3, beta=30)
+            variants.append((brightened, "bright"))
+
+            # Variant 2: Darkened (for overexposed plates)
+            darkened = cv2.convertScaleAbs(gray, alpha=0.8, beta=-20)
+            variants.append((darkened, "dark"))
+
+            # Variant 3: High contrast (gamma correction < 1.0)
+            gamma_low = np.power(gray / 255.0, 0.7) * 255.0
+            gamma_low = gamma_low.astype(np.uint8)
+            variants.append((gamma_low, "gamma_low"))
+
+            # Variant 4: Low contrast (gamma correction > 1.0)
+            gamma_high = np.power(gray / 255.0, 1.3) * 255.0
+            gamma_high = gamma_high.astype(np.uint8)
+            variants.append((gamma_high, "gamma_high"))
+
+            # Variant 5: Adaptive histogram equalization
+            clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
+            equalized = clahe.apply(gray)
+            variants.append((equalized, "equalized"))
+
+        except Exception as e:
+            self.logger.warning(f"Exposure variant creation failed: {e}, using original only")
+            if len(image.shape) == 3:
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = image.copy()
+            variants = [(gray, "original")]
+
+        return variants
+
+    def ensemble_ocr(self, image: np.ndarray, methods: List[str] = None, use_exposure_bracketing: bool = True) -> Tuple[str, float, Dict]:
+        """
+        Main ensemble OCR function with exposure bracketing
+
         Args:
             image: Input plate image
             methods: List of methods to use (None untuk semua)
-            
+            use_exposure_bracketing: Try multiple exposure variants (slower but more accurate)
+
         Returns:
             Tuple[str, float, Dict]: (text, confidence, details)
         """
         start_time = time.time()
         self.total_ocr_calls += 1
-        
-        # Default methods
+
+        # Default methods - FIXED untuk match available methods
         if methods is None:
-            methods = ['standard', 'single_line', 'single_word', 'character_level']
-        
+            methods = ['cctv_block', 'single_line', 'single_word', 'character_level']
+
         # Collect OCR results
         ocr_results = []
-        
-        # Standard OCR methods
-        for method in methods:
-            if method in self.ocr_methods:
-                result = self.single_ocr_attempt(image, method)
-                if result.text:  # Only add non-empty results
-                    ocr_results.append(result)
-        
-        # Character-level OCR
-        if 'character_level' in methods:
-            char_result = self.character_level_ocr(image)
-            if char_result.text:
-                ocr_results.append(char_result)
+
+        # === EXPOSURE BRACKETING: Try multiple brightness/gamma variants ===
+        if use_exposure_bracketing:
+            variants = self._create_exposure_variants(image)
+            self.logger.debug(f"Testing {len(variants)} exposure variants")
+        else:
+            # Just use original image
+            if len(image.shape) == 3:
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = image.copy()
+            variants = [(gray, "original")]
+
+        # Try OCR on each variant
+        best_variant_results = []
+        for variant_img, variant_name in variants:
+            variant_results = []
+
+            # Standard OCR methods on this variant
+            for method in methods:
+                if method in self.ocr_methods:
+                    result = self.single_ocr_attempt(variant_img, method)
+                    if result.text:  # Only add non-empty results
+                        # Tag with variant name
+                        result.method = f"{method}_{variant_name}"
+                        variant_results.append(result)
+
+            # Character-level OCR on this variant
+            if 'character_level' in methods:
+                char_result = self.character_level_ocr(variant_img)
+                if char_result.text:
+                    char_result.method = f"character_level_{variant_name}"
+                    variant_results.append(char_result)
+
+            # Keep best result from this variant
+            if variant_results:
+                best_variant_result = max(variant_results, key=lambda r: r.confidence)
+                best_variant_results.append(best_variant_result)
+                self.logger.debug(f"Variant '{variant_name}': '{best_variant_result.text}' ({best_variant_result.confidence:.1f}%)")
+
+        # Use all best variant results for consensus
+        ocr_results = best_variant_results
         
         # Consensus voting
         consensus_text, consensus_confidence = self.consensus_voting(ocr_results)
-        
+
+        # Apply smart Indonesian validation
+        if consensus_text:
+            is_valid, adjusted_confidence = self.smart_indonesian_validation(consensus_text, consensus_confidence)
+            if not is_valid:
+                # Reject invalid plates
+                consensus_text = ""
+                consensus_confidence = 0.0
+            else:
+                # Use adjusted confidence
+                consensus_confidence = adjusted_confidence
+
         total_time = time.time() - start_time
         
         # Prepare details

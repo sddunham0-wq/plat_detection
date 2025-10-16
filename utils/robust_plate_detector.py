@@ -35,91 +35,112 @@ class RobustPlateDetector:
     def __init__(self, streaming_mode=False):
         self.logger = logging.getLogger(__name__)
         self.streaming_mode = streaming_mode  # Mode untuk real-time streaming
-        
+
+        # Performance optimizations - batch processing cache
+        self.candidate_cache = {}  # Cache untuk candidate detection
+        self.batch_size = 3  # Process candidates in batches untuk efficiency
+
         if streaming_mode:
-            # STREAMING MODE - Balanced optimization untuk closer camera
-            self.min_area = 400  # More permissive untuk catch smaller plates
-            self.max_area = 20000  # Expanded range
-            self.min_aspect_ratio = 1.8  # Slightly more permissive
-            self.max_aspect_ratio = 5.0  # Slightly more permissive
-            self.min_width = 40  # More permissive
-            self.max_width = 350
-            self.min_height = 15  # More permissive
-            self.max_height = 120
-            self.min_confidence = 10  # Very low untuk more detections
-            self.min_text_likelihood = 20  # Very low untuk more detections
-            self.max_candidates = 15  # More candidates untuk better coverage
+            # STREAMING MODE - ULTRA-SENSITIVE for distant/challenging plate detection
+            self.min_area = 150  # Reduced from 200 to 150 untuk very small/distant plates
+            self.max_area = 20000  # Increased to 20000 untuk better coverage
+            self.min_aspect_ratio = 0.5  # Reduced from 0.8 to 0.5 untuk allow vertical contours (aggressive dilation side-effect)
+            self.max_aspect_ratio = 7.0  # Increased from 6.0 to 7.0 untuk wider range
+            self.min_width = 15  # Reduced from 20 to 15 untuk smaller plate detection
+            self.max_width = 400  # Increased back to 400 untuk better coverage
+            self.min_height = 6   # Reduced from 8 to 6 untuk very distant plates
+            self.max_height = 150 # Increased back to 150 untuk better range
+            self.min_confidence = 20   # Reduced from 25 to 20 untuk better sensitivity while maintaining quality
+            self.min_text_likelihood = 25  # Reduced from 30 to 25 untuk balanced text validation
+            self.max_candidates = 10  # Increased from 5 to 10 untuk process more candidates
         else:
-            # FULL MODE - Parameter untuk accuracy
-            self.min_area = 200
-            self.max_area = 25000
-            self.min_aspect_ratio = 1.5
-            self.max_aspect_ratio = 6.0
-            self.min_width = 30
-            self.max_width = 400
-            self.min_height = 12
-            self.max_height = 150
-            self.min_confidence = 20
-            self.min_text_likelihood = 30
-            self.max_candidates = 30
-        
+            # FULL MODE - SMART BALANCED parameter for realistic plate detection
+            self.min_area = 600  # Increased from 100 to 600 for realistic plates
+            self.max_area = 25000  # Reduced from 30000 to 25000
+            self.min_aspect_ratio = 1.5  # Restored from 1.0 to 1.5
+            self.max_aspect_ratio = 6.0  # Reduced from 8.0 to 6.0
+            self.min_width = 30  # Increased from 15 to 30
+            self.max_width = 400  # Reduced from 500 to 400
+            self.min_height = 12   # Increased from 5 to 12
+            self.max_height = 150 # Reduced from 200 to 150
+            self.min_confidence = 25  # Increased from 10 to 25
+            self.min_text_likelihood = 30  # Increased from 15 to 30
+            self.max_candidates = 8  # Reduced from 12 to 8 untuk speed optimization
+
         # Statistics tracking
         self.total_detections = 0
         self.successful_ocr = 0
         self.failed_ocr = 0
         self.false_positives = 0
-        self.min_edge_density = 1.0  # More permissive untuk closer camera
-        self.min_texture_variance = 3  # More permissive untuk closer camera
-        
-        self.logger.info("🔧 Robust Plate Detector initialized with permissive parameters")
+        self.min_edge_density = 0.6  # Reduced from 1.2 to 0.6 for distant/blur plates (50% reduction)
+        self.min_texture_variance = 2.0  # Reduced from 4.0 to 2.0 for low-contrast plates (50% reduction)
+
+        self.logger.info("🔧 Robust Plate Detector initialized with batch processing optimization")
     
-    def detect_plates(self, image: np.ndarray) -> List[PlateDetection]:
+    def detect_plates(self, image: np.ndarray, vehicle_type: str = 'general') -> List[PlateDetection]:
         """
-        Main detection method yang robust untuk berbagai kondisi
+        Main detection method dengan smart ROI untuk fokus area plat
+
+        Args:
+            image: Input image
+            vehicle_type: Type of vehicle for ROI selection ('motorcycle', 'car', 'truck', 'general')
         """
         if image is None or image.size == 0:
             return []
-        
+
         detections = []
-        
+
         try:
-            # Multi-stage detection - optimize for mode
+            # Apply smart ROI untuk fokus area deteksi
+            roi_image, roi_offset = self._apply_smart_roi(image, vehicle_type)
+
+            # Multi-stage detection with batch processing optimization
             candidates = []
-            
+
+            # Clear conflicting cache for stability - fresh detection each time
+            self.candidate_cache.clear()  # Clear cache untuk eliminate false positive accumulation
+
             if self.streaming_mode:
-                # STREAMING MODE: Hanya metode tercepat
-                horizontal_candidates = self._detect_horizontal_plates(image)
-                candidates.extend(horizontal_candidates)
-                
-                # Hanya edge detection jika horizontal kurang dari 5 candidates
-                if len(horizontal_candidates) < 5:
-                    edge_candidates = self._detect_edge_based_plates(image)
-                    candidates.extend(edge_candidates)
+                # STREAMING MODE: Single best method untuk maximum stability
+                horizontal_candidates = self._detect_horizontal_plates(roi_image)
+                # Adjust coordinates untuk original image
+                horizontal_candidates = self._adjust_candidates_coordinates(horizontal_candidates, roi_offset)
+                candidates.extend(horizontal_candidates[:self.max_candidates])  # Limit immediately
             else:
-                # FULL MODE: Semua metode untuk accuracy maksimal
-                # Stage 1: Standard horizontal detection
-                horizontal_candidates = self._detect_horizontal_plates(image)
+                # FULL MODE: Primary horizontal detection with fallback edge detection
+                # Stage 1: Standard horizontal detection (primary method)
+                horizontal_candidates = self._detect_horizontal_plates(roi_image)
+                horizontal_candidates = self._adjust_candidates_coordinates(horizontal_candidates, roi_offset)
                 candidates.extend(horizontal_candidates)
-                
-                # Stage 2: Rotated plate detection
-                rotated_candidates = self._detect_rotated_plates(image)
-                candidates.extend(rotated_candidates)
-                
-                # Stage 3: Enhanced edge-based detection
-                edge_candidates = self._detect_edge_based_plates(image)
-                candidates.extend(edge_candidates)
+
+                # Stage 2: Enhanced edge-based detection (fallback only if needed)
+                if len(horizontal_candidates) < 2:  # Only use fallback if primary method finds few candidates
+                    edge_candidates = self._detect_edge_based_plates(roi_image)
+                    edge_candidates = self._adjust_candidates_coordinates(edge_candidates, roi_offset)
+                    candidates.extend(edge_candidates[:2])  # Limit fallback candidates
             
             self.logger.info(f"🔍 Found {len(candidates)} total candidates from all methods")
             
-            # Remove duplicates
+            # Remove duplicates dengan strict filtering
             unique_candidates = self._remove_duplicate_candidates(candidates)
             self.logger.info(f"🔧 After duplicate removal: {len(unique_candidates)} unique candidates")
+
+            # Additional quality filtering untuk eliminate low-quality candidates
+            quality_candidates = []
+            for candidate in unique_candidates:
+                if candidate.get('score', 0) >= 5:  # Reduced from 10 to 5 untuk maximum sensitivity
+                    quality_candidates.append(candidate)
+
+            self.logger.info(f"🎯 After quality filtering: {len(quality_candidates)} quality candidates")
+            unique_candidates = quality_candidates
             
             # Process each candidate - limit based on mode
             max_process = self.max_candidates
             for i, candidate in enumerate(unique_candidates[:max_process]):
                 detection = self._process_candidate(image, candidate, i+1)
                 if detection:
+                    # Apply ROI confidence boost
+                    detection = self._apply_roi_confidence_boost(detection)
                     detections.append(detection)
                     # Update statistics
                     self.total_detections += 1
@@ -240,8 +261,8 @@ class RobustPlateDetector:
         for detection in detections:
             text = detection.text.strip().upper()
             
-            # Skip jika text terlalu pendek 
-            if len(text) < 2:
+            # Skip jika text kosong - accept any readable text untuk CCTV
+            if len(text) < 1:
                 continue
                 
             # Skip jika hanya karakter aneh atau symbol
@@ -251,8 +272,8 @@ class RobustPlateDetector:
             # VALIDASI FORMAT PLAT INDONESIA
             plate_score = self._validate_indonesian_plate(text)
             
-            # Skip jika tidak mirip format plat Indonesia (threshold sangat permissive)
-            if plate_score < 5:  # Threshold minimum sangat rendah untuk fragment
+            # Very relaxed format validation untuk CCTV - accept any reasonable text
+            if plate_score < 1:  # Minimal validation untuk CCTV edge cases
                 continue
                 
             # Bonus untuk format plat yang valid
@@ -268,26 +289,26 @@ class RobustPlateDetector:
             area = w * h
             aspect_ratio = w / h if h > 0 else 0
             
-            # Size validation yang reasonable untuk plat asli
-            if (1200 <= area <= 12000 and  # Area yang sesuai plat motor (lebih toleran)
-                1.8 <= aspect_ratio <= 4.5 and  # Aspect ratio plat Indonesia (lebih toleran)
-                50 <= w <= 300 and  # Width reasonable (lebih toleran)
-                15 <= h <= 100):  # Height reasonable (lebih toleran)
+            # Size validation yang reasonable untuk plat asli - STABILIZED
+            if (400 <= area <= 12000 and  # Realistic area range untuk actual plates
+                1.5 <= aspect_ratio <= 5.0 and  # Standard plate aspect ratios
+                30 <= w <= 350 and  # Realistic width range untuk plates
+                12 <= h <= 100):  # Realistic height range untuk plates
                 
-                # Additional visual validation (lebih permissive)
+                # Additional visual validation - STABILIZED
                 visual_score = self._validate_visual_context(detection, x, y, w, h)
-                if visual_score >= 5:  # Threshold visual validation sangat permissive
+                if visual_score >= 8:  # Increased from 4 to 8 untuk better quality filtering
                     detection.confidence += visual_score
                     filtered.append(detection)
                 else:
-                    # Tetap include jika plate score tinggi meski visual score rendah
+                    # Include only high-scoring plates dengan strict requirements
                     plate_score = self._validate_indonesian_plate(detection.text)
-                    if plate_score >= 40:  # High confidence format
+                    if plate_score >= 50 and visual_score >= 6:  # Stricter untuk eliminate false positives
                         filtered.append(detection)
         
-        # Filter 3: Dalam streaming mode, prioritaskan confidence tinggi
-        if self.streaming_mode and len(filtered) > 3:
-            # Hanya ambil 3 detection terbaik untuk stabilitas
+        # Filter 3: Dalam streaming mode, prioritaskan confidence tinggi - PERFORMANCE OPTIMIZED
+        if self.streaming_mode and len(filtered) > 3:  # Reduced to 3 untuk speed optimization
+            # Ambil 3 detection terbaik untuk balance speed vs coverage
             filtered.sort(key=lambda x: x.confidence, reverse=True)
             filtered = filtered[:3]
         
@@ -298,7 +319,7 @@ class RobustPlateDetector:
         Validasi format plat nomor Indonesia dan beri skor
         Format umum: [Area][Nomor][Huruf] contoh: B1234ABC, D5678EF, etc
         """
-        if not text or len(text) < 1:  # Allow single character
+        if not text:  # Only check for empty text, allow any length including single character
             return 0
             
         text = text.upper().strip()
@@ -310,54 +331,64 @@ class RobustPlateDetector:
         # Pattern 1: Format standar Indonesia [Huruf][Nomor][Huruf]
         import re
         
-        # Pattern lengkap: 1-2 huruf + 1-4 angka + 1-3 huruf
+        # Pattern lengkap: 1-2 huruf + 1-4 angka + 1-3 huruf - CCTV OPTIMIZED
         standard_pattern = re.match(r'^[A-Z]{1,2}[0-9]{1,4}[A-Z]{1,3}$', text)
         if standard_pattern:
-            score += 50
+            score += 100  # High score untuk complete Indonesian format
             if len(text) >= 6:  # Format lengkap
-                score += 20
-        
-        # Pattern 2: Hanya huruf area (B, D, F, etc) + angka
+                score += 50
+
+        # Pattern 2: Hanya huruf area (B, D, F, etc) + angka - CCTV OPTIMIZED
         area_pattern = re.match(r'^[A-Z]{1,2}[0-9]+$', text)
-        if area_pattern and len(text) >= 3:
-            score += 30
-        
-        # Pattern 3: Angka + huruf akhir
+        if area_pattern and len(text) >= 2:  # Relaxed untuk CCTV partial reads
+            score += 60
+
+        # Pattern 3: Angka + huruf akhir - CCTV OPTIMIZED
         number_letter_pattern = re.match(r'^[0-9]+[A-Z]{1,3}$', text)
-        if number_letter_pattern and len(text) >= 3:
-            score += 25
+        if number_letter_pattern and len(text) >= 2:  # Relaxed untuk CCTV partial reads
+            score += 55
+
+        # Pattern 4: Any reasonable alphanumeric untuk CCTV edge cases
+        if re.match(r'^[A-Z0-9]+$', text) and len(text) >= 2:
+            # Basic alphanumeric that could be part of a plate
+            score += 30
+            # Bonus for likely plate fragments
+            if any(c.isdigit() for c in text) and any(c.isalpha() for c in text):
+                score += 20  # Mixed alphanumeric
         
-        # Pattern 4: Fragmen yang masuk akal (part of plate)
+        # Pattern 4: Fragmen yang masuk akal (part of plate) - EXTREME ENHANCED SCORING
         # Huruf area saja (B, D, F, etc)
         if len(text) == 1 and text in common_areas:
-            score += 25
-        
-        # 2-3 huruf yang bisa jadi bagian plat
+            score += 35  # Increased from 25 to 35
+
+        # 2-3 huruf yang bisa jadi bagian plat - ENHANCED SCORING
         if 2 <= len(text) <= 3 and text.isalpha():
             # Check if it could be area code or suffix
             if text in common_areas or any(text.startswith(area) for area in common_areas):
-                score += 20
+                score += 30  # Increased from 20 to 30
             else:
                 # Even non-standard 2-3 letter combinations might be plate fragments
-                score += 15
+                score += 25  # Increased from 15 to 25
+
+        # NEW: Single digit bonus for number fragments
+        if len(text) == 1 and text.isdigit():
+            score += 15  # Bonus for single digit fragments
         
         # Bonus untuk area yang umum di Indonesia (already defined above)
         
         for area in common_areas:
             if text.startswith(area):
-                score += 15
+                score += 20  # Increased from 15 to 20
                 break
-        
-        # Penalty untuk pattern yang tidak mirip plat
-        if re.match(r'^[A-Z]{3,}$', text):  # Hanya huruf semua
-            score -= 20
-        
-        if re.match(r'^[0-9]{3,}$', text):  # Hanya angka semua  
-            score -= 20
-            
-        # Penalty untuk single char atau double char tanpa angka
-        if len(text) <= 2 and text.isalpha():
-            score -= 30
+
+        # Penalty untuk pattern yang tidak mirip plat - REDUCED PENALTIES
+        if len(text) >= 4 and re.match(r'^[A-Z]{4,}$', text):  # Only penalize long letter-only strings
+            score -= 10  # Reduced from 20 to 10
+
+        if len(text) >= 4 and re.match(r'^[0-9]{4,}$', text):  # Only penalize long number-only strings
+            score -= 10  # Reduced from 20 to 10
+
+        # REMOVED: Penalty for single/double char alpha - allow fragments
             
         return max(0, score)
     
@@ -420,6 +451,103 @@ class RobustPlateDetector:
             "false_positives": self.false_positives,
             "success_rate": round(success_rate, 1)
         }
+
+    def _apply_smart_roi(self, image: np.ndarray, vehicle_type: str = 'general') -> Tuple[np.ndarray, Tuple[int, int]]:
+        """
+        Apply smart ROI based on vehicle type untuk fokus deteksi plat
+
+        Args:
+            image: Input image
+            vehicle_type: Vehicle type for ROI selection
+
+        Returns:
+            Tuple of (ROI image, (x_offset, y_offset))
+        """
+        from config import DetectionConfig
+
+        h, w = image.shape[:2]
+
+        # Get ROI zone based on vehicle type
+        if DetectionConfig.ENABLE_SMART_ROI and vehicle_type in DetectionConfig.ROI_ZONES:
+            roi_zone = DetectionConfig.ROI_ZONES[vehicle_type]
+        else:
+            roi_zone = DetectionConfig.ROI_ZONES[DetectionConfig.DEFAULT_ROI_ZONE]
+
+        # Calculate ROI coordinates
+        x_percent, y_percent, w_percent, h_percent = roi_zone
+
+        x1 = int(w * x_percent)
+        y1 = int(h * y_percent)
+        x2 = int(w * (x_percent + w_percent))
+        y2 = int(h * (y_percent + h_percent))
+
+        # Ensure coordinates are within image bounds
+        x1 = max(0, min(x1, w))
+        y1 = max(0, min(y1, h))
+        x2 = max(x1, min(x2, w))
+        y2 = max(y1, min(y2, h))
+
+        # Extract ROI
+        roi_image = image[y1:y2, x1:x2]
+        roi_offset = (x1, y1)
+
+        self.logger.debug(f"🎯 Smart ROI applied for {vehicle_type}: {(x1, y1, x2-x1, y2-y1)} from {(w, h)}")
+
+        return roi_image, roi_offset
+
+    def _adjust_candidates_coordinates(self, candidates: List[Dict], roi_offset: Tuple[int, int]) -> List[Dict]:
+        """
+        Adjust candidate coordinates from ROI back to original image coordinates
+
+        Args:
+            candidates: List of candidate dictionaries
+            roi_offset: (x_offset, y_offset) from ROI
+
+        Returns:
+            List of candidates with adjusted coordinates
+        """
+        x_offset, y_offset = roi_offset
+        adjusted_candidates = []
+
+        for candidate in candidates:
+            # Create copy to avoid modifying original
+            adjusted_candidate = candidate.copy()
+
+            # Adjust bounding box coordinates
+            if 'bbox' in adjusted_candidate:
+                x, y, w, h = adjusted_candidate['bbox']
+                adjusted_candidate['bbox'] = (x + x_offset, y + y_offset, w, h)
+
+            # Adjust contour points if present
+            if 'contour' in adjusted_candidate and adjusted_candidate['contour'] is not None:
+                adjusted_contour = adjusted_candidate['contour'].copy()
+                adjusted_contour[:, 0, 0] += x_offset  # Adjust x coordinates
+                adjusted_contour[:, 0, 1] += y_offset  # Adjust y coordinates
+                adjusted_candidate['contour'] = adjusted_contour
+
+            adjusted_candidates.append(adjusted_candidate)
+
+        return adjusted_candidates
+
+    def _apply_roi_confidence_boost(self, detection) -> any:
+        """
+        Apply confidence boost untuk detection dalam ROI area
+
+        Args:
+            detection: PlateDetection object
+
+        Returns:
+            PlateDetection with boosted confidence
+        """
+        from config import DetectionConfig
+
+        # Apply ROI confidence boost
+        if hasattr(DetectionConfig, 'ROI_CONFIDENCE_BOOST'):
+            detection.confidence += DetectionConfig.ROI_CONFIDENCE_BOOST
+            # Cap at 100%
+            detection.confidence = min(detection.confidence, 100.0)
+
+        return detection
     
     def _detect_horizontal_plates(self, image: np.ndarray) -> List[Dict]:
         """
@@ -428,12 +556,10 @@ class RobustPlateDetector:
         candidates = []
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
         
-        # Multiple preprocessing methods
+        # Focused preprocessing methods - stability first
         methods = [
-            ("otsu", cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]),
-            ("adaptive_mean", cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 11, 2)),
-            ("adaptive_gaussian", cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)),
-            ("edges", cv2.Canny(gray, 50, 150))
+            ("adaptive_gaussian", cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)),  # Primary: best for plates
+            ("otsu", cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1])  # Fallback: for clear contrast
         ]
         
         for method_name, processed in methods:
@@ -454,12 +580,21 @@ class RobustPlateDetector:
         candidates = []
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
         
-        # Edge detection untuk rotated rectangles
-        edges = cv2.Canny(gray, 50, 150)
-        
-        # Morphological operations
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+        # Edge detection untuk rotated rectangles - ULTRA-SENSITIVE
+        edges = cv2.Canny(gray, 30, 120)  # Reduced from (50, 150) for distant plate detection
+
+        # ULTRA-AGGRESSIVE morphological operations untuk connect fragmented plate characters
+        # Step 1: Small closing untuk cleanup noise
+        kernel_cleanup = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel_cleanup)
+
+        # Step 2: STRONG horizontal dilation untuk connect characters into plate regions
+        kernel_horizontal = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 3))  # Wide horizontal kernel
+        edges = cv2.dilate(edges, kernel_horizontal, iterations=2)
+
+        # Step 3: Additional vertical connection untuk full plate height
+        kernel_vertical = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 5))
+        edges = cv2.dilate(edges, kernel_vertical, iterations=1)
         
         # Find contours
         contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -513,13 +648,18 @@ class RobustPlateDetector:
         candidates = []
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
         
-        # Enhanced edge detection
+        # Enhanced edge detection - ULTRA-SENSITIVE
         blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-        edges = cv2.Canny(blurred, 30, 100)
-        
-        # Dilate to connect text characters
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 1))
-        dilated = cv2.dilate(edges, kernel, iterations=1)
+        edges = cv2.Canny(blurred, 20, 80)  # Reduced from (30, 100) for maximum sensitivity
+
+        # ULTRA-AGGRESSIVE dilation untuk distant/fragmented plates
+        # Horizontal connection untuk plate characters
+        kernel_horizontal = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 3))  # Increased from (5,1)
+        dilated = cv2.dilate(edges, kernel_horizontal, iterations=3)  # Increased from 1 to 3 iterations
+
+        # Additional vertical connection untuk full plate height
+        kernel_vertical = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 5))
+        dilated = cv2.dilate(dilated, kernel_vertical, iterations=1)
         
         # Find contours
         contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -900,8 +1040,9 @@ class RobustPlateDetector:
         boosted_confidence = confidence + validation_result['confidence_boost']
         boosted_confidence = max(0, min(100, boosted_confidence))
         
-        if boosted_confidence < self.min_confidence:
-            self.logger.debug(f"❌ Low confidence: {boosted_confidence:.1f}%")
+        # Apply minimal confidence filtering untuk CCTV edge cases
+        if boosted_confidence < 5 or confidence < 1:  # Minimal threshold untuk CCTV detection
+            self.logger.debug(f"❌ Low confidence: {boosted_confidence:.1f}% (original: {confidence:.1f}%)")
             return None
         
         self.logger.info(f"✅ Plate detected: '{text}' ({boosted_confidence:.1f}%) via {candidate['method']}")
@@ -930,7 +1071,7 @@ class RobustPlateDetector:
             roi_gray = roi
         
         # Calculate features
-        edges = cv2.Canny(roi_gray, 50, 150)
+        edges = cv2.Canny(roi_gray, 30, 120)  # Reduced from (50, 150) for ultra-sensitivity
         edge_density = np.sum(edges > 0) / (w * h) * 100
         texture_variance = np.std(roi_gray)
         mean_intensity = np.mean(roi_gray)
@@ -983,11 +1124,11 @@ class RobustPlateDetector:
         
         results = []
         
-        # Test different angles - optimize for streaming
+        # Test different angles - stabilized for accuracy
         if self.streaming_mode:
-            test_angles = [0] if angle == 0 else [0, angle]  # Minimal angles untuk speed
+            test_angles = [0]  # Only test original angle untuk maximum stability
         else:
-            test_angles = [0, angle, -angle] if angle != 0 else [0, 10, -10, 15, -15]
+            test_angles = [0, 10, -10] if angle == 0 else [0, angle]  # Limited angles untuk focus
         
         for test_angle in test_angles:
             try:
@@ -1000,10 +1141,17 @@ class RobustPlateDetector:
                 # Enhance for OCR
                 enhanced_roi = self._enhance_for_ocr(rotated_roi)
                 
-                # Multiple OCR configurations
+                # ENHANCED OCR configurations for CCTV - multiple strategies
                 configs = [
-                    '--psm 8 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+                    # Primary: Uniform block - best for license plates
+                    '--psm 6 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -c classify_bln_numeric_mode=1',
+                    # Secondary: Single text line - for aligned plates
                     '--psm 7 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+                    # Tertiary: Single word - for partial reads
+                    '--psm 8 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+                    # Quaternary: Fully automatic - for challenging cases
+                    '--psm 3 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+                    # Ultimate fallback: Raw line without OSD
                     '--psm 13 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
                 ]
                 
@@ -1020,7 +1168,23 @@ class RobustPlateDetector:
                         # Extract text and confidence
                         confidences = [int(conf) for conf in data['conf'] if int(conf) > 0]
                         texts = [text.strip() for text in data['text'] if text.strip()]
-                        
+
+                        # Fallback: jika image_to_data tidak menghasilkan text, coba image_to_string
+                        if not texts:
+                            try:
+                                fallback_text = pytesseract.image_to_string(
+                                    enhanced_roi,
+                                    lang='eng',
+                                    config=config
+                                ).strip()
+                                if fallback_text:
+                                    clean_text = ''.join(c for c in fallback_text if c.isalnum())
+                                    if clean_text:
+                                        texts = [clean_text]
+                                        confidences = [70.0]  # Default confidence untuk fallback
+                            except Exception:
+                                pass
+
                         if texts and confidences:
                             full_text = ''.join(texts).upper()
                             avg_confidence = np.mean(confidences)
@@ -1028,11 +1192,17 @@ class RobustPlateDetector:
                             # Clean text
                             cleaned_text = self._clean_text(full_text)
                             
-                            if len(cleaned_text) >= 2:
+                            if len(cleaned_text) >= 2:  # Relaxed untuk CCTV detection, accept partial reads
                                 # Bonus for good angles
                                 angle_bonus = 5 if abs(test_angle) < 5 else 0
                                 final_confidence = avg_confidence + angle_bonus
-                                
+
+                                # CCTV bonus - boost confidence untuk reasonable text
+                                if len(cleaned_text) >= 4:  # Longer text gets confidence boost
+                                    final_confidence += 10
+                                if any(c.isdigit() for c in cleaned_text) and any(c.isalpha() for c in cleaned_text):
+                                    final_confidence += 5  # Mixed alphanumeric gets boost
+
                                 results.append((cleaned_text, final_confidence, abs(test_angle)))
                     
                     except Exception:
@@ -1070,26 +1240,90 @@ class RobustPlateDetector:
     
     def _enhance_for_ocr(self, roi: np.ndarray) -> np.ndarray:
         """
-        Enhance ROI for better OCR
+        ULTRA-ENHANCED ROI preprocessing untuk challenging conditions:
+        - Distant plates (small size)
+        - Glass reflections/distortions
+        - Poor lighting/contrast
         """
-        # Convert to grayscale if needed
-        if len(roi.shape) == 3:
-            roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        
-        # Upscale for small images
-        h, w = roi.shape
-        if h < 30 or w < 80:
-            scale_factor = max(3, 30 // h, 80 // w)
-            roi = cv2.resize(roi, (w * scale_factor, h * scale_factor), 
-                           interpolation=cv2.INTER_CUBIC)
-        
-        # Denoise
-        roi = cv2.bilateralFilter(roi, 5, 50, 50)
-        
-        # Enhance contrast
-        roi = cv2.convertScaleAbs(roi, alpha=1.2, beta=10)
-        
-        return roi
+        try:
+            # Convert to grayscale if needed
+            if len(roi.shape) == 3:
+                gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = roi.copy()
+
+            h, w = gray.shape
+            original_size = (w, h)
+
+            # === PHASE 1: ADVANCED DENOISING (for glass reflections) ===
+            # Non-local Means Denoising - excellent for removing glass artifacts
+            denoised = cv2.fastNlMeansDenoising(gray, None, h=10, templateWindowSize=7, searchWindowSize=21)
+
+            # === PHASE 2: SUPER-RESOLUTION UPSCALING ===
+            # Use LANCZOS4 for highest quality upscaling (better than CUBIC for text)
+            target_height = max(48, h * 4)  # Increased minimum to 48px
+            target_width = max(144, w * 4)  # Increased minimum to 144px
+
+            # Always upscale distant/small plates
+            if h < 50 or w < 150:
+                upscaled = cv2.resize(denoised, (target_width, target_height), interpolation=cv2.INTER_LANCZOS4)
+                self.logger.debug(f"🔍 Super-resolution: {w}x{h} → {target_width}x{target_height} (LANCZOS4)")
+            else:
+                upscaled = denoised
+
+            # === PHASE 3: REFLECTION REMOVAL ===
+            # Enhanced bilateral filter to remove glass reflections while preserving text edges
+            # Larger d and sigma values for stronger reflection removal
+            reflection_removed = cv2.bilateralFilter(upscaled, d=11, sigmaColor=90, sigmaSpace=90)
+
+            # === PHASE 4: ADAPTIVE CONTRAST ENHANCEMENT ===
+            # CLAHE with optimized parameters for CCTV conditions
+            clahe = cv2.createCLAHE(clipLimit=3.5, tileGridSize=(8, 8))
+            enhanced_contrast = clahe.apply(reflection_removed)
+
+            # === PHASE 5: TEXT ENHANCEMENT ===
+            # Morphological operations to enhance text clarity
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+            text_enhanced = cv2.morphologyEx(enhanced_contrast, cv2.MORPH_CLOSE, kernel)
+
+            # === PHASE 6: SHARPENING ===
+            # Unsharp mask for text sharpening
+            gaussian = cv2.GaussianBlur(text_enhanced, (0, 0), 2.0)
+            sharpened = cv2.addWeighted(text_enhanced, 1.8, gaussian, -0.8, 0)
+
+            # === PHASE 7: FINAL CONTRAST & BRIGHTNESS ===
+            # Stronger adjustments for distant plates
+            final = cv2.convertScaleAbs(sharpened, alpha=1.5, beta=20)
+
+            # === PHASE 8: LIGHT SMOOTHING ===
+            # Very light smoothing to reduce artifacts without losing text detail
+            final = cv2.GaussianBlur(final, (1, 1), 0)
+
+            return final
+
+        except Exception as e:
+            self.logger.warning(f"Ultra-enhanced preprocessing failed: {e}, using fallback")
+            # Fallback: basic preprocessing
+            try:
+                if len(roi.shape) == 3:
+                    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+                else:
+                    gray = roi.copy()
+
+                h, w = gray.shape
+
+                # Basic upscaling
+                if h < 40 or w < 120:
+                    scale_factor = max(40//h, 120//w, 3)
+                    gray = cv2.resize(gray, (w * scale_factor, h * scale_factor), interpolation=cv2.INTER_LANCZOS4)
+
+                # Basic enhancement
+                gray = cv2.convertScaleAbs(gray, alpha=1.3, beta=15)
+                return gray
+
+            except Exception as e2:
+                self.logger.error(f"Fallback preprocessing failed: {e2}")
+                return roi
     
     def _clean_text(self, text: str) -> str:
         """

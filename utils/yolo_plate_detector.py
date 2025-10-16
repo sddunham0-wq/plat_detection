@@ -155,12 +155,14 @@ class YOLOPlateDetector:
         start_time = time.time()
         
         try:
-            # Run YOLO inference
+            # Run YOLO inference with optimized parameters
             results = self.model(
                 image,
                 conf=self.confidence,
                 verbose=False,
-                imgsz=640 if self.streaming_mode else 1280
+                imgsz=1280,  # Higher resolution for better detection (was 640 for streaming)
+                iou=0.65,    # Higher NMS IOU threshold for aggressive duplicate filtering (was 0.45)
+                max_det=10   # Increase max detections per image (was limited to 3)
             )
             
             # Process results
@@ -207,10 +209,8 @@ class YOLOPlateDetector:
             
             # Sort by confidence
             detections.sort(key=lambda x: x.confidence, reverse=True)
-            
-            # Limit for streaming mode
-            if self.streaming_mode and len(detections) > 3:
-                detections = detections[:3]
+
+            # No limit on detections - show all detected plates
             
             detection_time = time.time() - start_time
             self.logger.info(f"🎯 YOLO plate detection: {len(detections)} plates in {detection_time:.2f}s")
@@ -325,78 +325,51 @@ class YOLOPlateDetector:
         
         return min(100.0, confidence)
     
-    def draw_detections(self, frame: np.ndarray, detections: List[PlateDetection], 
+    def draw_detections(self, frame: np.ndarray, detections: List[PlateDetection],
                        show_roi: bool = True) -> np.ndarray:
         """
-        Draw YOLO plate detections with distinctive styling
+        Draw plate detections with clean, minimal design
         """
         result = frame.copy()
-        
+
         # Sort detections by confidence untuk prioritas visual
         sorted_detections = sorted(detections, key=lambda x: x.confidence, reverse=True)
-        
-        for i, detection in enumerate(sorted_detections):
+
+        for detection in sorted_detections:
             x, y, w, h = detection.bbox
-            
-            # YOLO PLATE BOUNDING BOX - Distinctive colors
-            if i == 0:  # Best detection - bright cyan
-                plate_color = (255, 255, 0)  # CYAN untuk plat terbaik YOLO
-                thickness = 4
-            else:  # Other detections - blue
-                plate_color = (255, 128, 0)  # BLUE untuk plat lainnya YOLO
-                thickness = 3
-            
-            # Double border dengan YOLO signature
-            # Border luar (hitam)
-            cv2.rectangle(result, (x-2, y-2), (x + w + 2, y + h + 2), (0, 0, 0), thickness+1)
-            # Border dalam (warna YOLO)
-            cv2.rectangle(result, (x, y), (x + w, y + h), plate_color, thickness)
-            
-            # YOLO-style corner markers
-            corner_size = 12
-            corner_thickness = 3
-            # Top-left
-            cv2.line(result, (x, y), (x + corner_size, y), plate_color, corner_thickness)
-            cv2.line(result, (x, y), (x, y + corner_size), plate_color, corner_thickness)
-            # Top-right
-            cv2.line(result, (x + w, y), (x + w - corner_size, y), plate_color, corner_thickness)
-            cv2.line(result, (x + w, y), (x + w, y + corner_size), plate_color, corner_thickness)
-            # Bottom-left
-            cv2.line(result, (x, y + h), (x + corner_size, y + h), plate_color, corner_thickness)
-            cv2.line(result, (x, y + h), (x, y + h - corner_size), plate_color, corner_thickness)
-            # Bottom-right
-            cv2.line(result, (x + w, y + h), (x + w - corner_size, y + h), plate_color, corner_thickness)
-            cv2.line(result, (x + w, y + h), (x + w, y + h - corner_size), plate_color, corner_thickness)
-            
-            # YOLO PLATE LABEL - Distinctive
+
+            # Simple green rectangle untuk plate
+            color = (0, 255, 0)  # Green
+            cv2.rectangle(result, (x, y), (x + w, y + h), color, 2)
+
+            # Draw label dengan plate text dan confidence
             if detection.text:
-                if i == 0:
-                    label = f"🎯 YOLO-PLATE: {detection.text} ({detection.confidence:.0f}%)"
-                    font_scale = 0.8
-                else:
-                    label = f"YOLO-PLATE: {detection.text} ({detection.confidence:.0f}%)"
-                    font_scale = 0.7
-                
-                font = cv2.FONT_HERSHEY_DUPLEX
+                label = f"{detection.text} ({detection.confidence:.0f}%)"
+
+                # Get text size untuk background
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.6
                 font_thickness = 2
-                
-                # Get text size
-                (text_w, text_h), baseline = cv2.getTextSize(label, font, font_scale, font_thickness)
-                
-                # Background dengan YOLO styling
-                bg_padding = 5
-                bg_x1 = x - bg_padding
-                bg_y1 = y - text_h - 15 - bg_padding  
-                bg_x2 = x + text_w + bg_padding
-                bg_y2 = y - 5 + bg_padding
-                
-                # Background hitam dengan border YOLO
-                cv2.rectangle(result, (bg_x1-1, bg_y1-1), (bg_x2+1, bg_y2+1), (0, 0, 0), -1)
-                cv2.rectangle(result, (bg_x1, bg_y1), (bg_x2, bg_y2), plate_color, -1)
-                
-                # Text putih tebal
-                cv2.putText(result, label, (x, y - 8), font, font_scale, (255, 255, 255), font_thickness)
-        
+                (text_w, text_h), _ = cv2.getTextSize(label, font, font_scale, font_thickness)
+
+                # Small background untuk readability
+                bg_y1 = y - text_h - 10
+                bg_y2 = y - 2
+                bg_x1 = x
+                bg_x2 = x + text_w + 6
+
+                # Ensure background stays within frame
+                if bg_y1 < 0:
+                    bg_y1 = y + h + 2
+                    bg_y2 = y + h + text_h + 10
+
+                # Draw semi-transparent background
+                cv2.rectangle(result, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
+
+                # Draw text
+                text_y = bg_y1 + text_h + 3
+                cv2.putText(result, label, (x + 3, text_y), font, font_scale, color, font_thickness)
+
         return result
     
     def get_statistics(self) -> Dict[str, int]:

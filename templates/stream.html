@@ -592,9 +592,9 @@
                     <div class="row g-3 align-items-end">
                         <div class="col-md-8">
                             <label class="form-label text-muted small">Video Source</label>
-                            <input type="text" 
-                                   class="form-control form-control-elegant" 
-                                   id="sourceInput" 
+                            <input type="text"
+                                   class="form-control form-control-elegant"
+                                   id="sourceInput"
                                    placeholder="RTSP URL atau webcam index (0)"
                                    value="rtsp://admin:H4nd4l9165!@192.168.1.203:5503/cam/realmonitor?channel=1&amp;subtype=0">
                         </div>
@@ -605,9 +605,6 @@
                                 </button>
                                 <button class="btn btn-danger-elegant btn-elegant flex-fill" id="stopBtn" disabled>
                                     <i class="bi bi-stop-fill me-1"></i> Stop
-                                </button>
-                                <button class="btn btn-info-elegant btn-elegant" id="testBtn" title="Test Source">
-                                    <i class="bi bi-search"></i>
                                 </button>
                                 <button class="btn btn-secondary-elegant btn-elegant" id="screenshotBtn" title="Screenshot">
                                     <i class="bi bi-camera"></i>
@@ -940,7 +937,6 @@
         const statusText = document.getElementById('statusText');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
-        const testBtn = document.getElementById('testBtn');
         const screenshotBtn = document.getElementById('screenshotBtn');
         const sourceInput = document.getElementById('sourceInput');
         const detectionsList = document.getElementById('detectionsList');
@@ -1071,60 +1067,18 @@
             });
         });
         
-        testBtn.addEventListener('click', function() {
-            const source = sourceInput.value.trim();
-            if (!source) {
-                showAlert('Please enter a video source to test', 'warning');
-                return;
-            }
-
-            // Show loading state
-            const originalIcon = testBtn.innerHTML;
-            testBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-            testBtn.disabled = true;
-
-            fetch('/api/test_source', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({source: source})
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showAlert(`✅ Source test successful: ${data.resolution} - ${data.message}`, 'success');
-                    console.log('Source test result:', data);
-                } else {
-                    showAlert(`❌ Source test failed: ${data.message}`, 'danger');
-                    if (data.details) {
-                        showAlert(`Details: ${data.details}`, 'warning');
-                    }
-                }
-            })
-            .catch(error => {
-                console.error('Test source error:', error);
-                showAlert('Network error while testing source', 'danger');
-            })
-            .finally(() => {
-                // Restore button state
-                testBtn.innerHTML = originalIcon;
-                testBtn.disabled = false;
-            });
-        });
-
         screenshotBtn.addEventListener('click', function() {
             // Check if stream is running
             if (!statusIndicator.classList.contains('status-running')) {
                 showAlert('Stream must be running to take screenshot', 'warning');
                 return;
             }
-
+            
             // Show loading state
             const originalIcon = screenshotBtn.innerHTML;
             screenshotBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
             screenshotBtn.disabled = true;
-
+            
             fetch('/api/screenshot', {
                 method: 'POST'
             })
@@ -1147,7 +1101,54 @@
                 screenshotBtn.disabled = false;
             });
         });
-        
+
+        // Save plate button handler (event delegation for dynamic buttons)
+        document.addEventListener('click', function(e) {
+            if (e.target && e.target.closest('.save-plate-btn')) {
+                const button = e.target.closest('.save-plate-btn');
+                const plate = button.dataset.plate;
+                const confidence = parseFloat(button.dataset.confidence);
+
+                // Disable button to prevent double-click
+                const originalHTML = button.innerHTML;
+                button.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+                button.disabled = true;
+
+                // Call save API
+                fetch('/api/save_plate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        plate: plate,
+                        confidence: confidence
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showAlert(`💾 Saved: ${plate}`, 'success');
+                        // Change button to "Saved" state
+                        button.innerHTML = '<i class="bi bi-check-circle"></i> Saved';
+                        button.className = 'btn btn-sm btn-secondary';
+                    } else {
+                        showAlert('Failed to save: ' + data.error, 'danger');
+                        // Restore button
+                        button.innerHTML = originalHTML;
+                        button.disabled = false;
+                    }
+                })
+                .catch(error => {
+                    console.error('Save plate error:', error);
+                    showAlert('Network error while saving plate', 'danger');
+                    // Restore button
+                    button.innerHTML = originalHTML;
+                    button.disabled = false;
+                });
+            }
+        });
+
         // YOLO toggle handler
         yoloToggle.addEventListener('change', function() {
             const enabled = yoloToggle.checked;
@@ -1428,38 +1429,57 @@
         
         function addDetections(detections) {
             detections.forEach(detection => {
-                detectionHistory.unshift(detection);
-                
-                const item = document.createElement('div');
-                item.className = 'detection-item';
-                item.innerHTML = `
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div>
-                            <div class="detection-plate">${detection.text}</div>
-                            <span class="detection-confidence">${detection.confidence.toFixed(1)}%</span>
-                        </div>
-                        <div class="text-end">
-                            <div class="detection-time">
-                                ${new Date(detection.timestamp * 1000).toLocaleTimeString()}
+                // Check if this plate text already exists in detectionHistory
+                const isDuplicate = detectionHistory.some(existing =>
+                    existing.text === detection.text
+                );
+
+                // Only add if not duplicate
+                if (!isDuplicate) {
+                    detectionHistory.unshift(detection);
+
+                    const item = document.createElement('div');
+                    item.className = 'detection-item';
+                    item.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                <div class="detection-plate">${detection.text}</div>
+                                <span class="detection-confidence">${detection.confidence.toFixed(1)}%</span>
+                            </div>
+                            <div class="text-end d-flex flex-column align-items-end gap-2">
+                                <div class="detection-time">
+                                    ${new Date(detection.timestamp * 1000).toLocaleTimeString()}
+                                </div>
+                                <button class="btn btn-sm btn-success save-plate-btn"
+                                        data-plate="${detection.text}"
+                                        data-confidence="${detection.confidence}"
+                                        style="font-size: 0.75rem; padding: 0.25rem 0.75rem;">
+                                    <i class="bi bi-save"></i> Save
+                                </button>
                             </div>
                         </div>
-                    </div>
-                `;
-                
-                // Clear placeholder if exists
-                if (detectionsList.querySelector('.text-center')) {
-                    detectionsList.innerHTML = '';
+                    `;
+
+                    // Clear placeholder if exists
+                    if (detectionsList.querySelector('.text-center')) {
+                        detectionsList.innerHTML = '';
+                    }
+
+                    detectionsList.insertBefore(item, detectionsList.firstChild);
                 }
-                
-                detectionsList.insertBefore(item, detectionsList.firstChild);
             });
-            
-            // Keep only last 20 detections
+
+            // Keep only last 20 unique detections
             while (detectionsList.children.length > 20) {
                 detectionsList.removeChild(detectionsList.lastChild);
             }
-            
-            // Update count with animation
+
+            // Keep detectionHistory in sync with displayed items
+            if (detectionHistory.length > 20) {
+                detectionHistory = detectionHistory.slice(0, 20);
+            }
+
+            // Update count with animation (show unique count)
             animateCounter(detectionCount, detectionHistory.length);
         }
         

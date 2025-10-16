@@ -9,10 +9,20 @@ class CCTVConfig:
     """Pengaturan CCTV dan Video Stream"""
     
     # Default video sources
-    # Try different ports - uncomment to test
-    DEFAULT_RTSP_URL = "rtsp://admin:H4nd4l9165!@192.168.1.195:554/85"      # Auto-detected working URL ✅
-    # DEFAULT_RTSP_URL = "rtsp://:H4nd4l9165!@192.168.1.195:8554/85"   # Alternative RTSP port
-    # DEFAULT_RTSP_URL = "rtsp://:H4nd4l9165!@192.168.1.195:8005/85"   # Original port
+    # ✅ WORKING URL FOUND: Correct RTSP path discovered!
+    DEFAULT_RTSP_URL = "rtsp://admin:H4nd4l9165!@192.168.1.203:5503/cam/realmonitor?channel=1&subtype=0"  # NEW WORKING URL ✅
+
+    # Alternative URLs untuk testing dan fallback
+    # DEFAULT_RTSP_URL = "rtsp://admin:H4nd4l9165!@192.168.1.195:554"      # Previous working URL
+    # DEFAULT_RTSP_URL = "rtsp://admin:H4nd4l9165!@192.168.1.195:8554/85"   # Alternative RTSP port
+
+    # Fallback URLs jika yang utama tidak berfungsi
+    FALLBACK_RTSP_URLS = [
+        "rtsp://admin:H4nd4l9165!@192.168.1.195:554",                      # Previous working camera (fallback)
+        "rtsp://admin:H4nd4l9165!@192.168.1.203:5503/cam/realmonitor?channel=1&subtype=1",  # Substream
+        "rtsp://admin:H4nd4l9165!@192.168.1.203:554/cam/realmonitor?channel=1&subtype=0",   # Standard RTSP port
+        "rtsp://admin:H4nd4l9165!@192.168.1.195:8554/85",                  # Original alternative port
+    ]
     DEFAULT_WEBCAM = 0      # Default to laptop camera (index 0)
     DEFAULT_LAPTOP_CAMERA = 0  # Laptop built-in camera index
     DEFAULT_VIDEO_FILE = "video_cctv.mp4"
@@ -27,10 +37,16 @@ class CCTVConfig:
     ENABLE_FRAME_SKIPPING = True   # Enable frame skipping for better performance
     PROCESS_EVERY_N_FRAMES = 2     # Process every 2nd frame (skip 1 frame)
     
-    # RTSP connection settings
-    RTSP_TIMEOUT = 10          # Timeout koneksi RTSP (detik)
+    # RTSP connection settings - Enhanced untuk 192.168.1.203
+    RTSP_TIMEOUT = 15          # Timeout koneksi RTSP (detik) - increased for Dahua cameras
     RECONNECT_DELAY = 5        # Delay sebelum reconnect (detik)
     MAX_RECONNECT_ATTEMPTS = 3 # Maksimal percobaan reconnect
+
+    # Enhanced OpenCV settings untuk optimal RTSP streaming
+    OPENCV_BACKEND = 'FFMPEG'  # Force FFMPEG backend untuk RTSP
+    BUFFER_SIZE_RTSP = 1       # Minimal buffer untuk real-time streaming
+    FORCE_FRAME_SIZE = True    # Force frame size setting
+    PREFERRED_CODEC = 'H264'   # Preferred video codec
 
 class TesseractConfig:
     """Pengaturan Tesseract OCR untuk plat nomor Indonesia"""
@@ -54,17 +70,17 @@ class TesseractConfig:
     LANGUAGE = 'ind+eng'  # Indonesia + English untuk hasil terbaik
     FALLBACK_LANGUAGE = 'eng'  # Fallback jika Indonesia tidak tersedia
     
-    # Confidence threshold (0-100) - OPTIMIZED for stable detection
-    MIN_CONFIDENCE = 60        # Increased untuk mengurangi false positive
-    INDONESIAN_MIN_CONFIDENCE = 55  # Increased untuk akurasi lebih baik
-
+    # Confidence threshold (0-100) - STRICT for false positive prevention
+    MIN_CONFIDENCE = 65        # Strict threshold untuk prevent false positives
+    INDONESIAN_MIN_CONFIDENCE = 70  # Increased from 50 to 70 untuk very strict Indonesian detection
+    
     # Auto language detection - OPTIMIZED thresholds
     ENABLE_AUTO_LANGUAGE = True  # Enable auto-detection berdasarkan confidence
-    LANGUAGE_SWITCH_THRESHOLD = 45  # Increased untuk stability
-
-    # Indonesian plate specific optimizations untuk stabilitas
-    USE_MULTIPLE_PSM = True     # Enabled untuk akurasi lebih baik
-    PSM_PRIORITY = [7, 8, 13]   # Multi-PSM approach untuk hasil optimal
+    LANGUAGE_SWITCH_THRESHOLD = 20  # Lowered from 35 to 20 - less aggressive fallback
+    
+    # Indonesian plate specific optimizations
+    USE_MULTIPLE_PSM = False    # Disabled for faster processing (use single PSM mode)
+    PSM_PRIORITY = [7]          # Single PSM mode for speed
 
 class IndonesianPlateConfig:
     """Pengaturan khusus untuk plat nomor Indonesia"""
@@ -139,20 +155,39 @@ class DetectionConfig:
     # Format: (x%, y%, width%, height%)
     ROI_AREA = (0.05, 0.2, 0.9, 0.6)  # Expanded area for better coverage
     
-    # Enhanced duplicate detection untuk stabilitas
-    DUPLICATE_THRESHOLD = 30          # Increased untuk menghindari duplicate detections
+    # Enhanced duplicate detection
+    DUPLICATE_THRESHOLD = 30          # Increased to 30 seconds untuk prevent spam
     MIN_PLATE_LENGTH = 5             # Minimal panjang karakter plat
     MAX_PLATE_LENGTH = 12            # Maksimal panjang karakter plat
+
+    # Quality-based filtering thresholds (STRICT)
+    MIN_QUALITY_SCORE = 0.75         # Increased from 0.6 to 0.75 untuk strict quality validation
+    MIN_CONFIDENCE_THRESHOLD = 0.5    # Increased from 0.3 to 0.5 untuk prevent false positives
+    MIN_TEXT_SCORE = 0.6             # Minimum text pattern score (60%)
+
+    # Enhanced IoU threshold untuk duplicate filtering
+    ENHANCED_IOU_THRESHOLD = 0.65    # Increased from 0.30 to 0.65 untuk better duplicate removal
     
     # Color-based detection thresholds
     ENABLE_COLOR_FILTERING = True     # Enable Indonesian plate color detection
     MIN_COLOR_CONFIDENCE = 15.0       # Minimum color confidence for regular plates
     MOTORCYCLE_MIN_COLOR_CONFIDENCE = 10.0  # Lower threshold for motorcycles
     
-    # Geometric validation thresholds
-    MIN_RECTANGULARITY = 0.7          # Minimum rectangularity score
-    MIN_SOLIDITY = 0.8               # Minimum solidity score
-    MIN_EXTENT = 0.7                 # Minimum extent score
+    # Geometric validation thresholds (enhanced)
+    MIN_RECTANGULARITY = 0.5          # Reduced from 0.7 untuk better plate detection
+    MIN_SOLIDITY = 0.6               # Reduced from 0.8 untuk better motorcycle plates
+    MIN_EXTENT = 0.5                 # Reduced from 0.7 untuk angled plates
+
+    # Bounding box refinement parameters (STRICT)
+    ENABLE_BBOX_REFINEMENT = True     # Enable contour-based bounding box refinement
+    EDGE_DETECTION_THRESHOLD = 0.5    # Increased from 0.3 to 0.5 untuk strict edge quality
+    CONTOUR_AREA_MIN = 800           # Increased from 500 untuk larger minimum area
+    CONTOUR_AREA_MAX = 30000         # Decreased from 50000 untuk reasonable maximum
+
+    # False positive prevention parameters
+    MIN_EDGE_DENSITY = 0.15          # Minimum edge density untuk valid plates
+    MIN_CONTRAST_RATIO = 1.5         # Minimum contrast ratio untuk text visibility
+    MAX_BACKGROUND_UNIFORMITY = 0.8   # Maximum background uniformity (lower = more varied)
     
     # Temporal smoothing settings
     ENABLE_TEMPORAL_SMOOTHING = True  # Enable detection tracking
@@ -184,8 +219,8 @@ class MotorcycleDetectionConfig:
     UPSCALE_FACTOR = 6.0              # Increased upscaling for better OCR
     MIN_OCR_HEIGHT = 20               # Further reduced for small plates
     
-    # Enhanced detection confidence (optimized for stability)
-    MIN_CONFIDENCE = 35               # Lowered from 50 to 35 for real-world CCTV conditions
+    # Enhanced detection confidence (optimized for quality - FIXED for accuracy)
+    MIN_CONFIDENCE = 65               # Increased from 35 to 65 to prevent false positives and garbage OCR
     MOTORCYCLE_PRIORITY = True        # Prioritas deteksi untuk motor
     
     # Enhanced extreme distance detection settings
@@ -261,9 +296,9 @@ class AlertConfig:
 
 class TrackingConfig:
     """Pengaturan sistem tracking objek dan plat nomor"""
-    
-    # Enable/disable tracking system (DISABLED for streaming performance)
-    ENABLE_TRACKING = False
+
+    # Enable/disable tracking system (ENABLED for duplicate filtering)
+    ENABLE_TRACKING = True
     
     # Object tracking parameters
     MAX_DISAPPEARED_FRAMES = 30      # Max frame objek hilang sebelum dihapus
@@ -346,9 +381,31 @@ class EnhancedDetectionConfig:
     MAX_ENHANCEMENT_TIME = 2.0          # Max time for enhancement pipeline
     ENHANCED_CONFIDENCE_BOOST = 10.0    # Confidence boost for enhanced detections
 
+class PersonDetectionConfig:
+    """Pengaturan Person Detection System"""
+
+    # Enable/disable person detection (DEFAULT: DISABLED untuk backward compatibility)
+    ENABLE_PERSON_DETECTION = True       # Set to True untuk enable person detection
+
+    # Person detection thresholds
+    PERSON_CONFIDENCE = 0.5              # Confidence threshold untuk person (50%)
+    PERSON_MAX_DETECTIONS = 20           # Maximum persons per frame
+
+    # Visual styling untuk person bounding boxes
+    PERSON_BBOX_COLOR = (255, 0, 0)      # Blue color (BGR format)
+    PERSON_BBOX_THICKNESS = 2            # Bounding box line thickness
+    PERSON_SHOW_CONFIDENCE = True        # Show confidence scores
+
+    # Model settings
+    PERSON_YOLO_MODEL = 'yolov8n.pt'     # YOLOv8 model untuk person detection
+
+    # Performance settings
+    PERSON_DETECTION_PARALLEL = True     # Run person detection parallel dengan plate detection
+    PERSON_FRAME_SKIP = 1                # Process every N frames (1 = every frame)
+
 class MultiCameraConfig:
     """Pengaturan multi-camera system"""
-    
+
     # Multi-camera settings
     ENABLE_MULTI_CAMERA = True           # Enable multi-camera capability
     MAX_CAMERAS = 4                      # Maximum number of concurrent cameras
@@ -589,70 +646,3 @@ def calculate_plate_confidence_boost(text: str, base_confidence: float) -> float
     
     # Cap at 100%
     return min(boosted_confidence, 100.0)
-
-class OptimizedYOLOConfig:
-    """
-    Konfigurasi YOLO yang dioptimasi untuk deteksi plat nomor yang stabil
-    """
-
-    # Model selection - optimized untuk real-time performance
-    MODEL_PATH = 'yolov8n.pt'  # Use nano untuk real-time performance
-    FALLBACK_MODEL = 'yolov8s.pt'  # Fallback ke small jika diperlukan
-
-    # Detection thresholds - optimized untuk stabilitas
-    CONFIDENCE_THRESHOLD = 0.65  # Increased dari 0.35 untuk mengurangi false positive
-    IOU_THRESHOLD = 0.45         # Optimal untuk Non-Max Suppression
-    MAX_DETECTIONS = 8           # Reduced dari 15 untuk fokus objek utama
-
-    # Vehicle classes yang relevan untuk plate detection
-    VEHICLE_CLASSES = [2, 3, 5, 7]  # car, motorcycle, bus, truck
-    VEHICLE_CLASS_NAMES = {
-        2: 'car',
-        3: 'motorcycle',
-        5: 'bus',
-        7: 'truck'
-    }
-
-    # Processing optimization
-    INPUT_SIZE = 640             # Standard YOLO input size
-    HALF_PRECISION = True        # Enable FP16 untuk performance
-
-    # Stability enhancements
-    MIN_VEHICLE_CONFIDENCE = 0.7  # Higher threshold untuk vehicle detection
-    MIN_DETECTION_SIZE = 50       # Minimum bounding box size (pixels)
-
-class StablePlateDetectionConfig:
-    """
-    Konfigurasi khusus untuk deteksi plat nomor yang stabil dan responsif
-    """
-
-    # Multi-frame validation untuk stabilitas
-    ENABLE_MULTI_FRAME_VALIDATION = True
-    VALIDATION_FRAMES = 3         # Butuh 3 frame konsisten untuk konfirmasi
-    CONFIDENCE_ACCUMULATION = True # Akumulasi confidence dari multiple frames
-
-    # Spatial filtering untuk konsistensi
-    MAX_SPATIAL_DRIFT = 100       # Max pixel drift antar frame
-    SPATIAL_CONSISTENCY_WEIGHT = 0.3  # Weight untuk spatial consistency
-
-    # Temporal filtering
-    FRAME_BUFFER_SIZE = 5         # Buffer untuk temporal analysis
-    TEMPORAL_SMOOTHING = True     # Enable temporal smoothing
-
-    # Quick response optimization
-    FAST_DETECTION_MODE = True    # Enable quick response mode
-    EARLY_TERMINATION = True      # Stop processing jika confidence tinggi
-    EARLY_TERMINATION_THRESHOLD = 0.85  # Threshold untuk early termination
-
-    # Performance optimization
-    ADAPTIVE_PROCESSING = True    # Adaptive processing based pada frame quality
-    SKIP_BLURRY_FRAMES = True     # Skip frames yang blur
-    BLUR_THRESHOLD = 100          # Threshold untuk blur detection
-
-    # Response time optimization
-    TARGET_RESPONSE_TIME = 0.2    # Target 200ms response time
-    MAX_PROCESSING_TIME = 0.5     # Max 500ms per frame
-
-    # Memory management
-    MAX_DETECTION_HISTORY = 50    # Max detections dalam memory
-    CLEANUP_INTERVAL = 100        # Cleanup memory setiap 100 frames

@@ -9,32 +9,27 @@ import threading
 import time
 import logging
 import numpy as np
-import os
 from typing import Optional, Callable, Dict, Any
 from dataclasses import dataclass
 from utils.video_stream import VideoStream, RTSPStream, WebcamStream
 from utils.plate_detector import LicensePlateDetector, PlateDetection
 from utils.robust_plate_detector import RobustPlateDetector
 from utils.yolo_plate_detector import YOLOPlateDetector
-from utils.hybrid_plate_detector import HybridPlateDetector
-from unified_plate_detector import create_unified_detector
-from utils.yolo_detector import YOLOObjectDetector, create_yolo_detector
 from utils.tracking_manager import TrackingManager
-from utils.plate_counter_manager import PlateCounterManager, create_plate_counter_manager
-from utils.stable_plate_counter import StablePlateCounter, create_stable_plate_counter
-from enhanced_plate_detector import EnhancedPlateDetector
+from utils.person_detector import PersonDetector, PersonDetection  # NEW: Person detection
+from utils.plate_validator import PlateValidator  # NEW: Indonesian plate validation
 from database import PlateDatabase
-from config import TrackingConfig
+from config import TrackingConfig, PersonDetectionConfig  # NEW: Person detection config
 
 @dataclass
 class StreamFrame:
-    """Struktur data untuk menyimpan frame yang telah diproses"""
-    annotated_frame: np.ndarray  # Frame dengan anotasi (untuk disimpan/dianalisis)
-    annotated_frame_jpeg: bytes  # Frame dalam format JPEG (untuk streaming)
+    """Frame data untuk web streaming"""
+    image_base64: str
     timestamp: float
     frame_id: int
     detections: list
     object_detections: list
+    person_detections: list  # NEW: Person detections
     fps: float
     processing_time: float
 
@@ -43,53 +38,43 @@ class HeadlessStreamManager:
     Manager untuk headless video streaming ke browser
     """
     
-    def __init__(self, source: str, database: PlateDatabase = None, enable_yolo: bool = True, enable_tracking: bool = True, custom_detector=None):
+    def __init__(self, source: str, database: PlateDatabase = None, enable_yolo: bool = False, enable_tracking: bool = True, enable_person_detection: bool = None):
         """
         Initialize stream manager
-        
+
         Args:
             source: Video source (RTSP URL, webcam index, file)
             database: Database instance untuk save results
-            enable_yolo: Enable YOLOv8 object detection
+            enable_yolo: Deprecated - no longer used (kept for compatibility)
             enable_tracking: Enable object tracking system
-            custom_detector: Obyek detektor kustom untuk menggantikan yang default
+            enable_person_detection: Enable person detection (None = use config default)
         """
         self.source = source
         self.database = database or PlateDatabase()
 
-        # Setup logging FIRST
-        self.logger = logging.getLogger(__name__)
-
         # Components
         self.video_stream = None
-
-        # --- PERBAIKAN: Gunakan custom_detector jika diberikan ---
-        if custom_detector:
-            self.plate_detector = custom_detector
-            self.logger.info(f"✅ Using custom detector: {type(custom_detector).__name__}")
-            self.enhanced_mode = hasattr(custom_detector, 'draw_enhanced_results')
-        else:
-            # Fallback ke detektor default jika tidak ada yang kustom
-            try:
-                # Use optimized unified detector with auto-configuration
-                self.plate_detector = create_unified_detector("rtsp_cctv")  # Optimized untuk streaming
-                self.logger.info("✅ Unified Plate Detector initialized (streaming optimized)")
-                self.enhanced_mode = True
-
-            except Exception as e:
-                self.logger.warning(f"Unified detector failed, fallback to Hybrid: {e}")
-                try:
-                    self.plate_detector = HybridPlateDetector(streaming_mode=True)
-                    self.logger.info("✅ Hybrid Plate Detector initialized as fallback")
-                    self.enhanced_mode = False
-                except Exception as e2:
-                    self.logger.error(f"FATAL: Failed to initialize any plate detector: {e2}")
-                    self.plate_detector = None # Critical error
-
-        self.yolo_detector = None
-        self.yolo_enabled = enable_yolo
+        self.plate_detector = YOLOPlateDetector(confidence=0.4, streaming_mode=True)  # ✅ YOLO PLATE DETECTION (Deep Learning, 40% confidence - reduced spam)
         self.tracking_manager = None
         self.tracking_enabled = enable_tracking and TrackingConfig.ENABLE_TRACKING
+
+        # NEW: Person detection (ISOLATED dari plate detection)
+        self.person_detector = None
+        self.person_detection_enabled = enable_person_detection if enable_person_detection is not None else PersonDetectionConfig.ENABLE_PERSON_DETECTION
+        if self.person_detection_enabled:
+            try:
+                self.person_detector = PersonDetector(
+                    model_path=PersonDetectionConfig.PERSON_YOLO_MODEL,
+                    confidence=PersonDetectionConfig.PERSON_CONFIDENCE,
+                    max_detections=PersonDetectionConfig.PERSON_MAX_DETECTIONS
+                )
+                if not self.person_detector.is_enabled():
+                    self.logger.warning("⚠️ Person detector created but not enabled")
+                    self.person_detection_enabled = False
+            except Exception as e:
+                self.logger.error(f"❌ Failed to initialize person detector: {e}")
+                self.person_detector = None
+                self.person_detection_enabled = False
         
         # Threading
         self.running = False
@@ -100,48 +85,34 @@ class HeadlessStreamManager:
         self.current_frame = None
         self.frame_callbacks = []
         self.detection_callbacks = []
-        
-        # Statistics - FIXED untuk unique plate counting
+
+        # NEW: Time-based duplicate filtering (5 second window)
+        self.recent_detections = {}  # {plate_text: last_timestamp}
+        self.duplicate_window = 5.0  # 5 seconds
+
+        # NEW: Text stability system for consistent bounding box labels
+        self.stable_plate_texts = {}  # {bbox_key: locked_text}
+        self.plate_text_votes = {}    # {bbox_key: {text: vote_count}}
+        self.bbox_vote_threshold = 3  # Lock text after 3 consistent votes
+        self.newly_locked_plates = set()  # Track plates that just got locked (for frontend notification)
+
+        # Statistics
         self.stats = {
             'total_frames': 0,
-            'total_detections': 0,  # FIXED: Total UNIQUE plates detected (bukan raw detections!)
-            'unique_plates_current': 0,  # Unique plates currently visible
-            'unique_plates_session': 0,  # Total unique plates dalam session
-            'raw_detection_events': 0,  # Raw detection events untuk debugging
-            'current_objects': 0,  # Objek saat ini di frame (current)
-            'current_vehicles': 0,  # Kendaraan saat ini di frame (current)
+            'total_detections': 0,  # Total plat nomor yang berhasil dibaca (akumulatif)
+            'total_detection_events': 0,  # Total detection events (akumulatif)
+            'total_persons_detected': 0,  # NEW: Total person detections (akumulatif)
             'fps': 0.0,
             'avg_processing_time': 0.0,
             'last_detection_time': None,
             'start_time': time.time(),
-            'yolo_enabled': False,
-            'tracking_enabled': False
+            'tracking_enabled': False,
+            'person_detection_enabled': self.person_detection_enabled  # NEW
         }
         
-        # Logger already initialized above
+        # Setup logging
+        self.logger = logging.getLogger(__name__)
         
-        # Initialize ULTRA-STABLE plate counter system untuk Indonesian plates
-        self.logger.info("Initializing ULTRA-STABLE plate counter system for Indonesian traffic...")
-        stable_counter_config = {
-            'text_similarity_threshold': 0.82,  # Higher untuk better matching
-            'spatial_distance_threshold': 150.0,  # Larger untuk Indonesian traffic movement patterns
-            'temporal_window': 4.0,  # 4 second stability window (optimized)
-            'min_stability_score': 0.60,  # Balanced stability requirement
-            'min_confidence': 0.35,  # Optimized untuk Indonesian OCR challenges
-            'confirmation_detections': 2  # Quick confirmation untuk responsiveness
-        }
-        self.stable_counter = create_stable_plate_counter(stable_counter_config)
-
-        # Keep old counter untuk compatibility (dapat di-disable nanti)
-        self.plate_counter = create_plate_counter_manager({
-            'similarity_threshold': 0.85,
-            'spatial_proximity_distance': 60.0,
-            'plate_expiry_time': 3.0,
-            'confirmation_threshold': 2,
-            'confidence_filter_min': 0.45
-        })
-        self.logger.info("✅ ULTRA-STABLE Indonesian plate counter initialized")
-
         # Initialize tracking manager
         if self.tracking_enabled:
             self.logger.info("Initializing tracking system...")
@@ -151,7 +122,7 @@ class HeadlessStreamManager:
                 'min_hits': TrackingConfig.MIN_HITS_FOR_CONFIRMATION,
                 'iou_threshold': TrackingConfig.IOU_THRESHOLD
             }
-
+            
             self.tracking_manager = TrackingManager(
                 tracking_config=tracking_config,
                 plate_confirmation_threshold=TrackingConfig.PLATE_CONFIRMATION_THRESHOLD,
@@ -159,89 +130,135 @@ class HeadlessStreamManager:
             )
             self.stats['tracking_enabled'] = True
             self.logger.info("✅ Tracking system initialized")
-        
-        # Start YOLOv8 loading in background untuk faster startup
-        if self.yolo_enabled:
-            self.logger.info("Starting YOLOv8 background loading...")
-            self._start_yolo_background_loading()
-        
+
+        # Initialize plate validator
+        self.plate_validator = PlateValidator()
+        self.logger.info("✅ Plate validator initialized")
+
         self.logger.info("HeadlessStreamManager initialized")
-    
-    def _start_yolo_background_loading(self):
-        """Start loading YOLOv8 in background thread"""
-        def load_yolo():
-            try:
-                self.logger.info("🔄 Loading YOLOv8 model in background...")
-                self.yolo_detector = create_yolo_detector('yolov8n.pt', 0.5)
-                if self.yolo_detector:
-                    # Auto-enable YOLOv8 setelah loading selesai
-                    self.yolo_detector.enable()
-                    self.stats['yolo_enabled'] = True
-                    self.logger.info("✅ YOLOv8 loaded and enabled! Object detection active.")
-                else:
-                    self.logger.warning("❌ Failed to load YOLOv8")
-            except Exception as e:
-                self.logger.error(f"Error loading YOLOv8: {str(e)}")
-        
-        # Start loading in daemon thread
-        loading_thread = threading.Thread(target=load_yolo, daemon=True)
-        loading_thread.start()
     
     def add_frame_callback(self, callback: Callable[[StreamFrame], None]):
         """Add callback untuk new frames"""
         self.frame_callbacks.append(callback)
-    
+
     def add_detection_callback(self, callback: Callable[[list], None]):
         """Add callback untuk detections"""
         self.detection_callbacks.append(callback)
-    
-    def enable_yolo(self):
-        """Enable YOLOv8 object detection dengan lazy loading"""
-        if not self.yolo_detector:
-            self.logger.info("Loading YOLOv8 model (this may take a moment)...")
-            self.yolo_detector = create_yolo_detector('yolov8n.pt', 0.5)
-        
-        if self.yolo_detector:
-            self.yolo_detector.enable()
-            self.stats['yolo_enabled'] = True
-            self.logger.info("YOLOv8 object detection enabled")
-            return True
+
+    def is_duplicate(self, plate_text: str) -> bool:
+        """
+        Check if plate was detected within duplicate_window (5 seconds)
+
+        Args:
+            plate_text: Plate text to check
+
+        Returns:
+            bool: True if duplicate, False if unique
+        """
+        current_time = time.time()
+
+        # Check if plate exists in recent detections
+        if plate_text in self.recent_detections:
+            time_since_last = current_time - self.recent_detections[plate_text]
+
+            if time_since_last < self.duplicate_window:
+                # Still within duplicate window
+                return True
+            else:
+                # Outside window, update timestamp
+                self.recent_detections[plate_text] = current_time
+                return False
         else:
-            self.logger.error("Failed to enable YOLOv8 - detector not available")
+            # New plate, add to recent detections
+            self.recent_detections[plate_text] = current_time
             return False
-    
-    def disable_yolo(self):
-        """Disable YOLOv8 object detection"""
-        if self.yolo_detector:
-            self.yolo_detector.disable()
-        self.stats['yolo_enabled'] = False
-        self.logger.info("YOLOv8 object detection disabled")
-    
-    def is_yolo_enabled(self) -> bool:
-        """Check if YOLOv8 is enabled"""
-        return self.yolo_detector and self.yolo_detector.is_enabled()
-    
-    def enable_sequential_detection(self, grid_zones=(3, 3), cycle_time=2.0):
-        """Enable sequential detection mode"""
-        if self.yolo_detector and hasattr(self.yolo_detector, 'enable_sequential_mode'):
-            self.yolo_detector.enable_sequential_mode(grid_zones, cycle_time)
-            self.logger.info(f"Sequential detection enabled: {grid_zones} grid, {cycle_time}s cycle")
-            return True
-        return False
-    
-    def disable_sequential_detection(self):
-        """Disable sequential detection mode"""
-        if self.yolo_detector and hasattr(self.yolo_detector, 'disable_sequential_mode'):
-            self.yolo_detector.disable_sequential_mode()
-            self.logger.info("Sequential detection disabled")
-            return True
-        return False
-    
-    def get_sequential_info(self):
-        """Get sequential detection info"""
-        if self.yolo_detector and hasattr(self.yolo_detector, 'get_current_zone_info'):
-            return self.yolo_detector.get_current_zone_info()
-        return {'sequential_mode': False}
+
+    def _get_bbox_key(self, bbox: tuple) -> str:
+        """
+        Generate unique key for bounding box location with high tolerance
+        Ensures same physical plate gets same key across frames
+
+        Args:
+            bbox: (x, y, w, h) bounding box
+
+        Returns:
+            str: Unique key based on center position and size
+        """
+        x, y, w, h = bbox
+        center_x = x + w // 2
+        center_y = y + h // 2
+
+        # Round to nearest 50 pixels untuk toleransi gerakan lebih besar
+        # Increased from 20px to 50px to handle camera shake and plate movement
+        center_x = (center_x // 50) * 50
+        center_y = (center_y // 50) * 50
+
+        # Add size component untuk distinguish plates yang berdekatan
+        # Round size to nearest 30 pixels
+        size_key = ((w + h) // 60) * 30
+
+        return f"{center_x}_{center_y}_{size_key}"
+
+    def get_stable_text(self, detection: PlateDetection) -> str:
+        """
+        Get stable text for detection using voting system
+        Only votes for VALID Indonesian plate formats
+        Prefers longer, more complete text
+
+        Args:
+            detection: PlateDetection object
+
+        Returns:
+            str: Most stable/consistent text for this location
+        """
+        bbox_key = self._get_bbox_key(detection.bbox)
+
+        # Check if text already locked
+        if bbox_key in self.stable_plate_texts:
+            return self.stable_plate_texts[bbox_key]
+
+        # Initialize vote dict for this bbox
+        if bbox_key not in self.plate_text_votes:
+            self.plate_text_votes[bbox_key] = {}
+
+        # IMPORTANT: Only add vote if text is VALID Indonesian format AND length >= 4
+        text = detection.text
+        if len(text) >= 4 and self.plate_validator.validate(text):
+            # Give extra votes for longer text (more complete reads)
+            vote_weight = 1
+            if len(text) >= 6:  # Full plate text (e.g., "F1346" or "B1234ABC")
+                vote_weight = 2  # Double votes for complete reads
+
+            self.plate_text_votes[bbox_key][text] = self.plate_text_votes[bbox_key].get(text, 0) + vote_weight
+            self.logger.debug(f"✅ Vote +{vote_weight} for '{text}' (len={len(text)})")
+        else:
+            # Invalid format or too short, don't vote for it
+            self.logger.debug(f"⏭️  Skip voting: '{text}' (len={len(text)}, valid={self.plate_validator.validate(text)})")
+
+        # Get text with most votes (if any valid votes exist)
+        votes = self.plate_text_votes[bbox_key]
+        if not votes:
+            # No valid votes yet, return empty string
+            return ""
+
+        # Prefer longest text if votes are close (within 1 vote)
+        sorted_by_votes = sorted(votes.items(), key=lambda x: (x[1], len(x[0])), reverse=True)
+        best_text = sorted_by_votes[0][0]
+        best_vote_count = sorted_by_votes[0][1]
+
+        # Lock text if reached threshold
+        if best_vote_count >= self.bbox_vote_threshold:
+            # Check if this is a NEW lock (not already locked)
+            if bbox_key not in self.stable_plate_texts:
+                self.stable_plate_texts[bbox_key] = best_text
+                self.newly_locked_plates.add(best_text)  # Track as newly locked!
+                self.logger.info(f"🔒 NEW LOCK: '{best_text}' (key={bbox_key}, len={len(best_text)}) after {best_vote_count} votes")
+                self.logger.info(f"🔍 newly_locked_plates now contains: {self.newly_locked_plates}")
+            else:
+                self.logger.debug(f"🔄 Already locked: '{best_text}' (key={bbox_key})")
+
+        return best_text
+
     
     def start(self) -> bool:
         """Start streaming"""
@@ -303,186 +320,72 @@ class HeadlessStreamManager:
                 frame_count += 1
                 process_start = time.time()
                 
-                # Detect objects dengan YOLOv8 (jika enabled)
-                object_detections = []
-                if self.is_yolo_enabled():
-                    # Use sequential detection if enabled, otherwise normal detection
-                    # FORCE vehicles_only=True untuk prevent lag dari person detection
-                    if hasattr(self.yolo_detector, 'sequential_mode') and self.yolo_detector.sequential_mode:
-                        object_detections = self.yolo_detector.detect_objects_sequential(frame, vehicles_only=True)
-                    else:
-                        object_detections = self.yolo_detector.detect_objects(frame, vehicles_only=True)
-                
-                # Detect plates dengan Enhanced Detection + Error Handling
-                plate_detections = []
-                enhanced_results = []
+                # Detect plates using YOLO (deep learning plate detection)
+                plate_detections = self.plate_detector.detect_plates(frame)
 
-                # Use unified detector with optimized performance
-                try:
-                    # Check if unified detector
-                    if hasattr(self.plate_detector, 'detect'):
-                        # Unified detector dengan 69x performance improvement
-                        plate_detections = self.plate_detector.detect(frame)
-                        self.logger.debug(f"Unified detection: {len(plate_detections)} plates found")
-
-                    elif self.enhanced_mode and hasattr(self.plate_detector, 'process_frame_enhanced'):
-                        # Enhanced detector fallback
-                        enhanced_results = self.plate_detector.process_frame_enhanced(frame)
-                        plate_detections = []
-
-                        # Convert enhanced results ke format yang compatible
-                        for result in enhanced_results:
-                            try:
-                                x, y, w, h = result['plate_bbox']
-                                plate_region = frame[y:y+h, x:x+w] if len(frame.shape) == 3 else frame[y:y+h, x:x+w]
-                                if plate_region.size == 0:
-                                    plate_region = np.zeros((50, 150, 3), dtype=np.uint8)
-                            except:
-                                plate_region = np.zeros((50, 150, 3), dtype=np.uint8)
-
-                            detection = PlateDetection(
-                                text=result['plate_text'],
-                                confidence=result['confidence'],
-                                bbox=result['plate_bbox'],
-                                processed_image=plate_region,
-                                timestamp=time.time(),
-                                vehicle_type=result.get('vehicle_type', 'unknown'),
-                                detection_method=result.get('detection_method', 'enhanced')
-                            )
-                            plate_detections.append(detection)
-
-                    else:
-                        # Hybrid detector fallback
-                        plate_detections = self.plate_detector.detect_plates(frame)
-
-                except Exception as e:
-                    self.logger.error(f"Detection failed: {e}")
-                    plate_detections = []
-                
-                # Process plates dengan ULTRA-STABLE counter system
-                # Use both counters untuk comprehensive analysis
-                for detection in plate_detections:
+                # NEW: Detect persons (ISOLATED - tidak mempengaruhi plate detection)
+                person_detections = []
+                if self.person_detection_enabled and self.person_detector:
                     try:
-                        # Extract vehicle type dari tracking atau detection method
-                        vehicle_type = getattr(detection, 'vehicle_type', 'unknown')
-
-                        # PRIMARY: Add to STABLE counter (main counting system)
-                        stable_plate_id = self.stable_counter.add_detection(
-                            text=detection.text,
-                            bbox=detection.bbox,
-                            confidence=detection.confidence,
-                            vehicle_type=vehicle_type
-                        )
-
-                        # SECONDARY: Add to legacy counter untuk comparison
-                        legacy_plate_id = self.plate_counter.add_or_update_detection(
-                            detection_text=detection.text,
-                            detection_bbox=detection.bbox,
-                            confidence=detection.confidence,
-                            tracking_id=None,  # Will be updated setelah tracking
-                            vehicle_type=vehicle_type
-                        )
-
-                        # Set plate_id untuk reference (prefer stable counter)
-                        detection.stable_plate_id = stable_plate_id
-                        detection.plate_counter_id = legacy_plate_id
-
+                        person_detections = self.person_detector.detect_persons(frame)
                     except Exception as e:
-                        self.logger.error(f"Error adding detection to stable counter: {e}")
+                        # ERROR ISOLATION: Person detection error tidak crash sistem
+                        self.logger.error(f"❌ Person detection error (isolated): {e}")
+                        person_detections = []
 
                 # Process dengan tracking system jika enabled
-                tracked_objects = []
                 tracked_plates = []
 
                 if self.tracking_enabled and self.tracking_manager:
-                    tracked_objects, tracked_plates = self.tracking_manager.process_frame(
-                        object_detections, plate_detections
+                    # Tracking manager now only processes plates
+                    _, tracked_plates = self.tracking_manager.process_frame(
+                        [], plate_detections  # No object detections, only plates
                     )
 
-                    # Update counter dengan tracking information
-                    for tracked_plate in tracked_plates:
-                        try:
-                            # Find corresponding detection dengan tracking info
-                            for detection in plate_detections:
-                                if (hasattr(detection, 'plate_counter_id') and
-                                    detection.text == tracked_plate.text):
-
-                                    # Update dengan tracking ID
-                                    self.plate_counter.add_or_update_detection(
-                                        detection_text=tracked_plate.text,
-                                        detection_bbox=tracked_plate.bbox,
-                                        confidence=tracked_plate.confidence,
-                                        tracking_id=tracked_plate.id,
-                                        vehicle_type=getattr(tracked_plate, 'vehicle_type', 'unknown')
-                                    )
-                                    break
-                        except Exception as e:
-                            self.logger.error(f"Error updating counter with tracking: {e}")
-                
-                # Prepare annotated frame
+                # Prepare frame dengan plate bounding boxes
                 annotated_frame = frame.copy()
-                
-                # Draw zone overlay first (if sequential mode)
-                if self.is_yolo_enabled() and hasattr(self.yolo_detector, 'sequential_mode'):
-                    annotated_frame = self.yolo_detector.draw_zone_overlay(annotated_frame)
-                
-                # Draw tracking results jika enabled
-                if self.tracking_enabled and tracked_objects:
-                    annotated_frame = self.tracking_manager.draw_tracking_results(
-                        annotated_frame, tracked_objects, tracked_plates,
-                        show_ids=TrackingConfig.SHOW_TRACKING_IDS
+
+                # NEW: Filter plate detections before display
+                filtered_plate_detections = []
+                for detection in plate_detections:
+                    # Filter 1: Minimum confidence threshold (65%)
+                    if detection.confidence < 0.65:
+                        continue
+
+                    # Filter 2: Get stable text FIRST (voting system)
+                    stable_text = self.get_stable_text(detection)
+
+                    # Filter 3: Minimum length (prevent partial reads like "F", "ET")
+                    if len(stable_text) < 4:
+                        self.logger.debug(f"❌ Text too short: '{stable_text}' (len={len(stable_text)})")
+                        continue
+
+                    # Filter 4: Validate STABLE text (Indonesian plate format)
+                    if not self.plate_validator.validate(stable_text):
+                        self.logger.debug(f"❌ Invalid plate format: '{stable_text}'")
+                        continue
+
+                    # Use stable, validated text
+                    detection.text = stable_text
+
+                    filtered_plate_detections.append(detection)
+
+                # Draw only filtered, valid plate detections
+                if filtered_plate_detections:
+                    annotated_frame = self.plate_detector.draw_detections(
+                        annotated_frame, filtered_plate_detections, show_roi=False
                     )
-                else:
-                    # Fallback ke regular drawing
-                    # Draw object detections (sebagai background)
-                    if object_detections:
-                        annotated_frame = self.yolo_detector.draw_detections(
-                            annotated_frame, object_detections, show_confidence=True
-                        )
-                    
-                    # Draw plate detections dengan enhanced style + Error Handling
+
+                # NEW: Draw person detections (BLUE bounding boxes)
+                if person_detections and self.person_detector:
                     try:
-                        if self.enhanced_mode and enhanced_results:
-                            # Use enhanced results directly jika ada
-                            annotated_frame = self.plate_detector.draw_enhanced_results(
-                                annotated_frame, enhanced_results
-                            )
-                        elif self.enhanced_mode and plate_detections:
-                            # Convert back to enhanced results format untuk drawing
-                            enhanced_results_for_draw = []
-                            for detection in plate_detections:
-                                enhanced_result = {
-                                    'vehicle_type': getattr(detection, 'vehicle_type', 'unknown'),
-                                    'vehicle_bbox': (0, 0, 0, 0),  # Will be filled by enhanced detector
-                                    'plate_text': detection.text,
-                                    'plate_bbox': detection.bbox,
-                                    'confidence': detection.confidence,
-                                    'detection_method': getattr(detection, 'detection_method', 'enhanced'),
-                                    'ocr_config': 'enhanced_streaming',
-                                    'enhancement_applied': 'streaming_optimized',
-                                    'processing_time': processing_time
-                                }
-                                enhanced_results_for_draw.append(enhanced_result)
-
-                            # Use enhanced drawing method
-                            annotated_frame = self.plate_detector.draw_enhanced_results(
-                                annotated_frame, enhanced_results_for_draw
-                            )
-                        else:
-                            # Fallback ke standard drawing
-                            if hasattr(self.plate_detector, 'draw_detections') and plate_detections:
-                                annotated_frame = self.plate_detector.draw_detections(
-                                    annotated_frame, plate_detections, show_roi=True
-                                )
-
+                        annotated_frame = self.person_detector.draw_detections(
+                            annotated_frame, person_detections,
+                            show_confidence=PersonDetectionConfig.PERSON_SHOW_CONFIDENCE
+                        )
                     except Exception as e:
-                        self.logger.warning(f"Enhanced drawing failed, using basic overlay: {e}")
-                        # Basic drawing fallback
-                        for detection in plate_detections:
-                            x, y, w, h = detection.bbox
-                            cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
-                            cv2.putText(annotated_frame, f"{detection.text} ({detection.confidence:.2f})",
-                                      (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                        # ERROR ISOLATION: Drawing error tidak crash sistem
+                        self.logger.error(f"❌ Person drawing error (isolated): {e}")
                 
                 # Calculate processing time
                 processing_time = time.time() - process_start
@@ -497,70 +400,33 @@ class HeadlessStreamManager:
                 current_fps = frame_count / elapsed_time if elapsed_time > 0 else 0
                 avg_processing_time = sum(processing_times) / len(processing_times)
                 
-                # Count vehicles in object detections
-                vehicle_count = sum(1 for obj in object_detections if obj.is_vehicle)
-
-                # Get ULTRA-STABLE counts dari StablePlateCounter (PRIMARY)
-                stable_counts = self.stable_counter.get_stable_counts()
-
-                # Get legacy counts untuk comparison (SECONDARY)
-                legacy_counts = self.plate_counter.get_current_counts()
-
                 with self.lock:
-                    # Update raw detection events untuk debugging (bukan untuk UI display!)
+                    # Update detection events counter (akumulatif untuk historical tracking)
                     if len(plate_detections) > 0:
-                        self.stats['raw_detection_events'] += len(plate_detections)
+                        self.stats['total_detection_events'] += 1
 
                     # Use tracking results untuk statistics jika available
-                    current_vehicles = len([obj for obj in tracked_objects if obj.is_vehicle]) if tracked_objects else vehicle_count
-                    confirmed_plates_tracking = len([plate for plate in tracked_plates if plate.confirmed]) if tracked_plates else 0
+                    confirmed_plates = len([plate for plate in tracked_plates if plate.confirmed]) if tracked_plates else 0
 
-                    # ULTRA-STABLE: Update dengan stable unique plate statistics (ULTIMATE SOLUTION!)
+                    # NEW: Update person detection stats
+                    if len(person_detections) > 0:
+                        self.stats['total_persons_detected'] += len(person_detections)
+
                     self.stats.update({
                         'total_frames': frame_count,
-                        # MAIN FIX: total_detections menggunakan ULTRA-STABLE counter!
-                        'total_detections': stable_counts['total_unique_session'],  # ✅ STABLE UNIQUE plates only!
-
-                        # STABLE COUNTER stats (PRIMARY)
-                        'stable_unique_plates_current': stable_counts['current_visible_plates'],
-                        'stable_unique_plates_session': stable_counts['total_unique_session'],
-                        'stable_confirmed_plates': stable_counts['stable_confirmed_plates'],
-                        'stable_high_confidence_plates': stable_counts['high_confidence_plates'],
-                        'stable_raw_processed': stable_counts['total_raw_processed'],
-                        'stable_quality_filtered': stable_counts['low_quality_filtered'] + stable_counts['false_positives_filtered'],
-
-                        # LEGACY COUNTER stats (untuk comparison)
-                        'legacy_unique_plates_current': legacy_counts['current_visible_plates'],
-                        'legacy_unique_plates_session': legacy_counts['total_unique_plates_session'],
-                        'legacy_raw_processed': legacy_counts['raw_detections_processed'],
-
-                        # GENERAL stats
-                        'current_objects': len(tracked_objects) if tracked_objects else len(object_detections),
-                        'current_vehicles': current_vehicles,
-                        'confirmed_plates': max(confirmed_plates_tracking, stable_counts['stable_confirmed_plates']),
+                        'total_detections': len(self.stable_plate_texts),  # NEW: Unique locked plates count
+                        'confirmed_plates': confirmed_plates,
                         'fps': round(current_fps, 1),
                         'avg_processing_time': round(avg_processing_time, 3),
                         'last_detection_time': time.time() if plate_detections else self.stats['last_detection_time']
                     })
-
-                    # Log ULTRA-STABLE counts untuk monitoring
-                    if frame_count % 30 == 0:  # Log every 30 frames
-                        self.logger.debug(f"🚗 ULTRA-STABLE PLATES: Current={stable_counts['current_visible_plates']}, "
-                                        f"Session total={stable_counts['total_unique_session']}, "
-                                        f"Stable confirmed={stable_counts['stable_confirmed_plates']}, "
-                                        f"High confidence={stable_counts['high_confidence_plates']}, "
-                                        f"Raw processed={stable_counts['total_raw_processed']} "
-                                        f"| Legacy comparison: Current={legacy_counts['current_visible_plates']}, "
-                                        f"Session={legacy_counts['total_unique_plates_session']}")
                 
                 # Convert frame to base64
-                # --- PERBAIKAN: Encode ke JPEG bytes, bukan base64 ---
-                frame_jpeg_bytes = self._frame_to_jpeg_bytes(annotated_frame)
+                frame_base64 = self._frame_to_base64(annotated_frame)
                 
                 # Create stream frame
                 stream_frame = StreamFrame(
-                    annotated_frame=annotated_frame,
-                    annotated_frame_jpeg=frame_jpeg_bytes,
+                    image_base64=frame_base64,
                     timestamp=time.time(),
                     frame_id=frame_count,
                     detections=[{
@@ -568,12 +434,11 @@ class HeadlessStreamManager:
                         'confidence': det.confidence,
                         'bbox': det.bbox
                     } for det in plate_detections],
-                    object_detections=[{
-                        'class_name': obj.class_name,
-                        'confidence': obj.confidence,
-                        'bbox': obj.bbox,
-                        'is_vehicle': obj.is_vehicle
-                    } for obj in object_detections],
+                    object_detections=[],  # No object detections - YOLO plate detection only
+                    person_detections=[{  # NEW: Person detections
+                        'confidence': det.confidence,
+                        'bbox': det.bbox
+                    } for det in person_detections],
                     fps=current_fps,
                     processing_time=processing_time
                 )
@@ -589,34 +454,35 @@ class HeadlessStreamManager:
                     except Exception as e:
                         self.logger.error(f"Frame callback error: {str(e)}")
                 
-                # Handle detections - prioritize confirmed tracked plates
+                # Handle detections - filter by confidence, length, pattern, and duplicates
                 final_detections = []
-                
-                if self.tracking_enabled and tracked_plates:
-                    # Use confirmed tracked plates untuk database save
-                    confirmed_tracked_plates = [plate for plate in tracked_plates if plate.confirmed]
-                    for tracked_plate in confirmed_tracked_plates:
-                        # Create PlateDetection object dari TrackedPlate
-                        # Create dummy processed_image
-                        try:
-                            x, y, w, h = tracked_plate.bbox
-                            plate_region = frame[y:y+h, x:x+w] if len(frame.shape) == 3 else frame[y:y+h, x:x+w]
-                            if plate_region.size == 0:
-                                plate_region = np.zeros((50, 150, 3), dtype=np.uint8)
-                        except:
-                            plate_region = np.zeros((50, 150, 3), dtype=np.uint8)
 
-                        detection = PlateDetection(
-                            text=tracked_plate.text,
-                            confidence=tracked_plate.confidence,
-                            bbox=tracked_plate.bbox,
-                            processed_image=plate_region,
-                            timestamp=time.time()
-                        )
-                        final_detections.append(detection)
-                else:
-                    # Fallback ke regular plate detections
-                    final_detections = plate_detections
+                # Process all plate detections with comprehensive filtering
+                for detection in plate_detections:
+                    # Filter 1: Minimum confidence threshold (65%)
+                    if detection.confidence < 0.65:
+                        continue
+
+                    # Filter 2: Get stable text for this detection
+                    stable_text = self.get_stable_text(detection)
+
+                    # Filter 3: Minimum length (prevent partial reads)
+                    if len(stable_text) < 4:
+                        continue
+
+                    # Filter 4: Validate STABLE text (Indonesian plate pattern)
+                    if not self.plate_validator.validate(stable_text):
+                        continue
+
+                    # Filter 5: Check for duplicates (5 second window) using stable text
+                    if self.is_duplicate(stable_text):
+                        continue
+
+                    # Use stable, validated text for database save
+                    detection.text = stable_text
+
+                    # Passed all filters, add to final detections
+                    final_detections.append(detection)
                 
                 if final_detections:
                     # Save to database
@@ -629,13 +495,34 @@ class HeadlessStreamManager:
                             )
                         except Exception as e:
                             self.logger.error(f"Database save error: {str(e)}")
-                    
-                    # Call detection callbacks
-                    for callback in self.detection_callbacks:
-                        try:
-                            callback(final_detections)
-                        except Exception as e:
-                            self.logger.error(f"Detection callback error: {str(e)}")
+
+                    # IMPORTANT: Only send NEWLY LOCKED plates to frontend (not every frame!)
+                    # This prevents detection counter from incrementing for same plate
+
+                    # DEBUG: Log current state
+                    self.logger.debug(f"🔍 final_detections count: {len(final_detections)}")
+                    self.logger.debug(f"🔍 newly_locked_plates: {self.newly_locked_plates}")
+
+                    newly_locked_detections = [
+                        det for det in final_detections
+                        if det.text in self.newly_locked_plates
+                    ]
+
+                    self.logger.debug(f"🔍 newly_locked_detections count: {len(newly_locked_detections)}")
+
+                    if newly_locked_detections:
+                        # Call detection callbacks with ONLY newly locked plates
+                        for callback in self.detection_callbacks:
+                            try:
+                                callback(newly_locked_detections)
+                                self.logger.info(f"📤 Sent {len(newly_locked_detections)} newly locked plate(s) to frontend")
+                            except Exception as e:
+                                self.logger.error(f"Detection callback error: {str(e)}")
+
+                        # Clear newly locked set after sending
+                        self.newly_locked_plates.clear()
+                    else:
+                        self.logger.debug(f"⏭️  No newly locked plates to send (already sent or not locked yet)")
                     
                     # Log detection dengan tracking info
                     for det in final_detections:
@@ -681,55 +568,70 @@ class HeadlessStreamManager:
         """Get streaming statistics"""
         with self.lock:
             stats = self.stats.copy()
-        
+
         # Add detector statistics
         detector_stats = self.plate_detector.get_statistics()
         stats.update(detector_stats)
-        
-        # Add YOLOv8 statistics jika available
-        if self.yolo_detector:
-            yolo_stats = self.yolo_detector.get_statistics()
-            for key, value in yolo_stats.items():
-                stats[f'yolo_{key}'] = value
-        
+
         # Add tracking statistics jika available
         if self.tracking_manager:
             tracking_stats = self.tracking_manager.get_statistics()
             for key, value in tracking_stats.items():
                 stats[f'tracking_{key}'] = value
 
-        # Add ULTRA-STABLE plate counter statistics (ULTIMATE SOLUTION!)
-        if hasattr(self, 'stable_counter') and self.stable_counter:
-            stable_stats = self.stable_counter.get_comprehensive_stats()
-
-            # Add stable counter stats dengan prefix
-            for key, value in stable_stats.items():
-                if key not in ['configuration']:  # Skip configuration details
-                    stats[f'stable_{key}'] = value
-
-            # Add primary summary stats (these are displayed in UI)
-            stats['plates_summary'] = {
-                'current_visible': stable_stats.get('current_visible_plates', 0),
-                'total_session': stable_stats.get('total_unique_session', 0),
-                'stable_confirmed': stable_stats.get('stable_confirmed_plates', 0),
-                'high_confidence': stable_stats.get('high_confidence_plates', 0),
-                'stability_rate': stable_stats.get('stability_metrics', {}).get('stability_rate_percent', 0),
-                'efficiency_rate': stable_stats.get('stability_metrics', {}).get('efficiency_rate_percent', 0)
-            }
-
-        # Add legacy plate counter statistics untuk comparison
-        if hasattr(self, 'plate_counter') and self.plate_counter:
-            legacy_stats = self.plate_counter.get_statistics()
-
-            # Add legacy counter stats dengan prefix untuk comparison
-            for key, value in legacy_stats.items():
-                if key not in ['configuration']:  # Skip configuration details
-                    stats[f'legacy_{key}'] = value
+        # NEW: Add person detection statistics
+        if self.person_detector:
+            person_stats = self.person_detector.get_statistics()
+            for key, value in person_stats.items():
+                stats[f'person_{key}'] = value
 
         # Add uptime
         stats['uptime'] = round(time.time() - stats['start_time'], 1)
 
         return stats
+
+    def toggle_person_detection(self, enable: bool) -> bool:
+        """
+        Toggle person detection on/off runtime
+
+        Args:
+            enable: True untuk enable, False untuk disable
+
+        Returns:
+            bool: True jika berhasil, False jika gagal
+        """
+        try:
+            if enable:
+                # Enable person detection
+                if self.person_detector is None:
+                    # Create new detector jika belum ada
+                    self.person_detector = PersonDetector(
+                        model_path=PersonDetectionConfig.PERSON_YOLO_MODEL,
+                        confidence=PersonDetectionConfig.PERSON_CONFIDENCE,
+                        max_detections=PersonDetectionConfig.PERSON_MAX_DETECTIONS
+                    )
+                    if not self.person_detector.is_enabled():
+                        self.logger.error("❌ Failed to enable person detector")
+                        return False
+
+                self.person_detector.enable()
+                self.person_detection_enabled = True
+                self.stats['person_detection_enabled'] = True
+                self.logger.info("✅ Person detection ENABLED")
+                return True
+
+            else:
+                # Disable person detection
+                if self.person_detector:
+                    self.person_detector.disable()
+                self.person_detection_enabled = False
+                self.stats['person_detection_enabled'] = False
+                self.logger.info("⏸️ Person detection DISABLED")
+                return True
+
+        except Exception as e:
+            self.logger.error(f"❌ Error toggling person detection: {e}")
+            return False
     
     def is_running(self) -> bool:
         """Check if streaming is running"""

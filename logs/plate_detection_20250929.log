@@ -1,0 +1,29 @@
+2025-09-29 09:46:16,480 - INFO - Live Plate Detection System initialized
+2025-09-29 09:46:16,480 - INFO - Initializing database...
+2025-09-29 09:46:16,481 - INFO - Database initialized: detected_plates.db
+2025-09-29 09:46:16,481 - INFO - Initializing plate detector...
+2025-09-29 09:46:16,481 - INFO - License Plate Detector initialized
+2025-09-29 09:46:16,481 - INFO - Initializing motorcycle plate detector...
+2025-09-29 09:46:16,482 - INFO - Indonesian Plate OCR initialized
+2025-09-29 09:46:16,482 - INFO - Indonesian OCR initialized for motorcycle detection
+2025-09-29 09:46:16,482 - INFO - Motorcycle detector initialized - Enabled: True
+2025-09-29 09:46:16,482 - INFO - ✅ Motorcycle plate detector enabled
+2025-09-29 09:46:16,482 - INFO - Initializing video stream: rtsp://admin:H4nd4l9165!@192.168.1.203:5503/cam/realmonitor?channel=1&subtype=0
+2025-09-29 09:46:16,482 - INFO - Initializing frame processor...
+2025-09-29 09:46:16,482 - INFO - FrameProcessor initialized with 2 processing threads
+2025-09-29 09:46:16,482 - INFO - All components initialized successfully
+2025-09-29 09:46:16,482 - INFO - Starting video stream...
+2025-09-29 09:46:18,478 - INFO - Video stream started - Source: rtsp://admin:H4nd4l9165!@192.168.1.203:5503/cam/realmonitor?channel=1&subtype=0, FPS: 24.916666666666668
+2025-09-29 09:46:18,481 - INFO - Starting frame processor...
+2025-09-29 09:46:18,484 - INFO - FrameProcessor started
+2025-09-29 09:46:18,484 - INFO - 🚀 Live detection system started successfully!
+2025-09-29 09:46:18,968 - INFO - 🔄 Preprocessing generated 4 methods
+2025-09-29 09:46:19,745 - INFO - 🔄 Preprocessing generated 4 methods
+2025-09-29 09:46:20,644 - INFO - 🔍 Total contours from all methods: 204
+2025-09-29 09:46:20,783 - INFO - 🔧 After duplicate removal: 154 unique contours
+2025-09-29 09:46:20,784 - INFO - 🎯 Processing top 25 motorcycle plate candidates
+2025-09-29 09:46:21,081 - INFO - 🔍 Total contours from all methods: 201
+2025-09-29 09:46:21,088 - INFO - 🔧 After duplicate removal: 152 unique contours
+2025-09-29 09:46:21,088 - INFO - 🎯 Processing top 25 motorcycle plate candidates
+2025-09-29 09:46:25,302 - INFO - ✅ Motorcycle plate detected: '2 B' (82.0%) bbox=(1846, 329, 74, 40) area=1480
+2025-09-29 09:46:25,302 - INFO - ✅ Motorcycle plate detected: 'SM' (60.5%) bbox=(796, 108, 66, 34) area=1392
