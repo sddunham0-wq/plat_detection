@@ -1,0 +1,28 @@
+2025-10-08 09:46:02,100 - INFO - Test log message
+2025-10-08 09:48:35,679 - INFO - 🚀 Enhanced Plate Detector dimulai
+2025-10-08 09:48:35,679 - INFO - 📁 Save folder: gambarplat
+2025-10-08 09:48:35,679 - INFO - 📹 Camera URL: rtsp://admin:H4nd4l9165!@192.168.1.203:5503/cam/realmonitor?channel=1&subtype=0
+2025-10-08 09:48:35,679 - INFO - 🎬 Memulai deteksi plat nomor...
+2025-10-08 09:48:35,679 - INFO - 🔌 Mencoba koneksi ke kamera... (percobaan 1)
+2025-10-08 09:48:37,675 - INFO - ✅ Kamera berhasil terhubung
+2025-10-08 09:49:05,688 - INFO - 
+            📊 STATISTIK DETEKSI:
+            - Total frames: 203
+            - Total deteksi: 12
+            - Plat valid: 0
+            - False positives: 12
+            - Detection rate: 5.9%
+            - Accuracy rate: 0.0%
+            
+2025-10-08 09:49:11,634 - INFO - 👋 Program dihentikan oleh user (Ctrl+C)
+2025-10-08 09:49:11,641 - INFO - 
+            📊 STATISTIK DETEKSI:
+            - Total frames: 257
+            - Total deteksi: 12
+            - Plat valid: 0
+            - False positives: 12
+            - Detection rate: 4.7%
+            - Accuracy rate: 0.0%
+            
+2025-10-08 09:49:11,641 - INFO - 🧹 Cleanup selesai
+2025-10-08 09:49:11,641 - INFO - 👋 Program selesai

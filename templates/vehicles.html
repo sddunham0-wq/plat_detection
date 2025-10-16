@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <title>🚗 Daftar Kendaraan</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+
+    <style>
+        /* Clean Blue-White Design */
+        body {
+            background: linear-gradient(135deg, #e3f2fd 0%, #f5f9fc 100%);
+            min-height: 100vh;
+            color: #2c3e50;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        }
+
+        /* Card dengan subtle shadow */
+        .card {
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(25, 118, 210, 0.08);
+            background: white;
+        }
+
+        /* Header */
+        .page-title {
+            color: #1976d2;
+            font-weight: 600;
+            font-size: 1.75rem;
+        }
+
+        /* Plat nomor - biru clean */
+        .plate-number {
+            font-family: 'Courier New', monospace;
+            font-weight: 700;
+            font-size: 1.1rem;
+            letter-spacing: 1px;
+            color: #1976d2;
+            background-color: #e3f2fd;
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            display: inline-block;
+            border: 1px solid #bbdefb;
+        }
+
+        /* Badge status - subtle */
+        .badge-aktif {
+            background-color: #28a745;
+            font-size: 0.85rem;
+            padding: 0.35rem 0.65rem;
+        }
+
+        .badge-nonaktif {
+            background-color: #dc3545;
+            font-size: 0.85rem;
+            padding: 0.35rem 0.65rem;
+        }
+
+        /* Buttons - flat & minimal */
+        .btn {
+            border-radius: 6px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-add {
+            background-color: #28a745;
+            border: none;
+        }
+
+        .btn-add:hover {
+            background-color: #218838;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(40, 167, 69, 0.3);
+        }
+
+        .btn-sm {
+            padding: 0.35rem 0.6rem;
+            font-size: 0.875rem;
+        }
+
+        .btn-edit {
+            background-color: #007bff;
+            border: none;
+        }
+
+        .btn-edit:hover {
+            background-color: #0056b3;
+        }
+
+        .btn-delete {
+            background-color: #dc3545;
+            border: none;
+        }
+
+        .btn-delete:hover {
+            background-color: #c82333;
+        }
+
+        /* Table - clean dengan biru accent */
+        .table {
+            margin-bottom: 0;
+        }
+
+        .table thead th {
+            background: linear-gradient(135deg, #1976d2 0%, #2196f3 100%);
+            color: white;
+            font-weight: 600;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border: none;
+            padding: 1rem 0.75rem;
+        }
+
+        .table tbody tr {
+            border-bottom: 1px solid #e3f2fd;
+        }
+
+        .table tbody tr:nth-child(even) {
+            background-color: #f5f9fc;
+        }
+
+        .table tbody tr:hover {
+            background-color: #e3f2fd;
+            transition: background-color 0.2s;
+        }
+
+        .table tbody td {
+            padding: 1rem 0.75rem;
+            vertical-align: middle;
+        }
+
+        /* Statistics cards - biru gradient */
+        .stat-card {
+            padding: 1.5rem;
+            border-radius: 12px;
+            background: white;
+            border: 1px solid #bbdefb;
+            transition: all 0.3s;
+            box-shadow: 0 1px 4px rgba(25, 118, 210, 0.1);
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(25, 118, 210, 0.2);
+            border-color: #90caf9;
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #1976d2;
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-label {
+            font-size: 0.875rem;
+            color: #64b5f6;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 500;
+        }
+
+        /* Search box */
+        .form-control {
+            border: 1px solid #bbdefb;
+            border-radius: 8px;
+            padding: 0.625rem 0.875rem;
+            background-color: white;
+        }
+
+        .form-control:focus {
+            border-color: #2196f3;
+            box-shadow: 0 0 0 0.2rem rgba(33, 150, 243, 0.15);
+            background-color: #fafbfc;
+        }
+
+        /* Alert yang lebih clean */
+        .alert {
+            border: none;
+            border-radius: 6px;
+        }
+
+        /* Modal styling */
+        .modal-header {
+            border-bottom: 1px solid #e3f2fd;
+            padding: 1.25rem 1.5rem;
+        }
+
+        .modal-header.bg-primary {
+            background: linear-gradient(135deg, #1976d2 0%, #2196f3 100%) !important;
+        }
+
+        .modal-header.bg-danger {
+            background: linear-gradient(135deg, #d32f2f 0%, #ef5350 100%) !important;
+        }
+
+        .modal-body {
+            padding: 1.5rem;
+        }
+
+        .modal-footer {
+            border-top: 1px solid #e9ecef;
+            padding: 1rem 1.5rem;
+        }
+
+        .modal-content {
+            border: none;
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+        }
+
+        /* Outline button for secondary actions */
+        .btn-outline-secondary {
+            border-color: #90caf9;
+            color: #1976d2;
+            background-color: white;
+        }
+
+        .btn-outline-secondary:hover {
+            background-color: #e3f2fd;
+            border-color: #64b5f6;
+            color: #1565c0;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .page-title {
+                font-size: 1.5rem;
+            }
+
+            .stat-number {
+                font-size: 1.5rem;
+            }
+
+            .table thead th {
+                font-size: 0.75rem;
+            }
+
+            .btn-sm {
+                padding: 0.25rem 0.4rem;
+                font-size: 0.75rem;
+            }
+        }
+
+        /* Add padding to table card body */
+        .card .table-responsive {
+            margin: -1rem -1rem 0 -1rem;
+        }
+
+        /* Smooth transitions */
+        * {
+            transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5 mb-5">
+
+        <!-- Header -->
+        <div class="mb-4">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h1 class="page-title mb-1">Daftar Kendaraan</h1>
+                    <p class="mb-0" style="font-size: 0.95rem; color: #64b5f6;">Kelola data kendaraan yang boleh masuk</p>
+                </div>
+                <div>
+                    <a href="/" class="btn btn-outline-secondary me-2">
+                        <i class="fas fa-home"></i> Beranda
+                    </a>
+                    <button class="btn btn-add text-white" data-bs-toggle="modal" data-bs-target="#addModal">
+                        <i class="fas fa-plus text-white"></i> Tambah
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pesan flash -->
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                <div class="alert alert-info alert-dismissible fade show">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <!-- Statistik -->
+        <div class="row mb-4">
+            <div class="col-md-3 mb-3 mb-md-0">
+                <div class="stat-card text-center">
+                    <div class="stat-number">{{ vehicles|length }}</div>
+                    <div class="stat-label">Total Kendaraan</div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3 mb-md-0">
+                <div class="stat-card text-center">
+                    <div class="stat-number text-success">{{ vehicles|selectattr('status', 'equalto', 'aktif')|list|length }}</div>
+                    <div class="stat-label">Aktif</div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3 mb-md-0">
+                <div class="stat-card text-center">
+                    <div class="stat-number">{{ vehicles|selectattr('jenis_kendaraan', 'equalto', 'mobil')|list|length }}</div>
+                    <div class="stat-label">Mobil</div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3 mb-md-0">
+                <div class="stat-card text-center">
+                    <div class="stat-number">{{ vehicles|selectattr('jenis_kendaraan', 'equalto', 'motor')|list|length }}</div>
+                    <div class="stat-label">Motor</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search -->
+        <div class="mb-4">
+            <input type="text" id="searchInput" class="form-control"
+                   placeholder="Cari plat nomor atau nama pemilik...">
+        </div>
+
+        <!-- Tabel Kendaraan -->
+        <div class="card">
+            <div class="card-body">
+                {% if vehicles %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>No</th>
+                                <th>Plat Nomor</th>
+                                <th>Nama Pemilik</th>
+                                <th>Jenis</th>
+                                <th>Status</th>
+                                <th>No HP</th>
+                                <th>Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="vehicleTable">
+                            {% for vehicle in vehicles %}
+                            <tr data-plate="{{ vehicle.nomor_plat }}" data-owner="{{ vehicle.nama_pemilik }}">
+                                <td>{{ loop.index }}</td>
+                                <td>
+                                    <span class="plate-number">{{ vehicle.nomor_plat }}</span>
+                                </td>
+                                <td><strong>{{ vehicle.nama_pemilik }}</strong></td>
+                                <td>
+                                    {% if vehicle.jenis_kendaraan == 'mobil' %}Mobil{% endif %}
+                                    {% if vehicle.jenis_kendaraan == 'motor' %}Motor{% endif %}
+                                    {% if vehicle.jenis_kendaraan == 'truk' %}Truk{% endif %}
+                                </td>
+                                <td>
+                                    {% if vehicle.status == 'aktif' %}
+                                        <span class="badge badge-aktif">Aktif</span>
+                                    {% else %}
+                                        <span class="badge badge-nonaktif">Nonaktif</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ vehicle.nomor_hp or '-' }}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-edit text-white btn-edit-vehicle"
+                                            data-id="{{ vehicle.id_kendaraan }}"
+                                            data-plate="{{ vehicle.nomor_plat }}"
+                                            data-owner="{{ vehicle.nama_pemilik|e }}"
+                                            data-type="{{ vehicle.jenis_kendaraan }}"
+                                            data-phone="{{ vehicle.nomor_hp or '' }}"
+                                            data-status="{{ vehicle.status }}">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-delete text-white btn-delete-vehicle"
+                                            data-id="{{ vehicle.id_kendaraan }}"
+                                            data-plate="{{ vehicle.nomor_plat }}">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center p-5">
+                    <i class="fas fa-car fa-3x mb-3" style="color: #dee2e6;"></i>
+                    <h5 class="text-muted mb-2">Belum ada kendaraan</h5>
+                    <p class="text-muted mb-0" style="font-size: 0.9rem;">Klik tombol <strong>Tambah</strong> untuk mendaftarkan kendaraan baru</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Tambah -->
+    <div class="modal fade" id="addModal">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">Tambah Kendaraan</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <form method="POST" action="/add_vehicle">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Plat Nomor *</label>
+                            <input type="text" name="nomor_plat" class="form-control"
+                                   required placeholder="Contoh: B1234ABC"
+                                   pattern="[A-Z]{1,2}\s?\d{1,4}\s?[A-Z]{1,3}"
+                                   title="Format: B1234ABC atau B 1234 ABC"
+                                   maxlength="15">
+                            <small class="text-muted">Format: B1234ABC (spasi akan dihapus otomatis)</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Nama Pemilik *</label>
+                            <input type="text" name="nama_pemilik" class="form-control"
+                                   required placeholder="Contoh: Pak Budi"
+                                   maxlength="100">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Jenis Kendaraan *</label>
+                            <select name="jenis_kendaraan" class="form-select" required>
+                                <option value="mobil">Mobil</option>
+                                <option value="motor">Motor</option>
+                                <option value="truk">Truk</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Nomor HP</label>
+                            <input type="tel" name="nomor_hp" class="form-control"
+                                   placeholder="Contoh: 08123456789"
+                                   pattern="^08[0-9]{8,12}$"
+                                   title="Format: 08XXXXXXXXXX (10-14 digit)"
+                                   maxlength="14">
+                            <small class="text-muted">Format: 08123456789 (hanya angka, 10-14 digit)</small>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                        <button type="submit" class="btn btn-add">Simpan</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Delete Confirmation -->
+    <div class="modal fade" id="deleteModal">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">⚠️ Konfirmasi Hapus</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Yakin ingin menghapus kendaraan dengan plat nomor:</p>
+                    <h4 class="plate-number text-center" id="deletePlateText"></h4>
+                    <p class="text-danger mt-3"><strong>⚠️ Tindakan ini tidak dapat dibatalkan!</strong></p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                    <button type="button" class="btn btn-danger" id="confirmDeleteBtn">Ya, Hapus</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Edit -->
+    <div class="modal fade" id="editModal">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">Edit Kendaraan</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <form method="POST" id="editForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Plat Nomor</label>
+                            <input type="text" id="edit_plat" class="form-control" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Nama Pemilik *</label>
+                            <input type="text" name="nama_pemilik" id="edit_nama" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Jenis Kendaraan *</label>
+                            <select name="jenis_kendaraan" id="edit_jenis" class="form-select" required>
+                                <option value="mobil">🚗 Mobil</option>
+                                <option value="motor">🏍️ Motor</option>
+                                <option value="truk">🚚 Truk</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Nomor HP</label>
+                            <input type="tel" name="nomor_hp" id="edit_hp" class="form-control"
+                                   pattern="^08[0-9]{8,12}$"
+                                   title="Format: 08XXXXXXXXXX (10-14 digit)"
+                                   maxlength="14">
+                            <small class="text-muted">Format: 08123456789 (hanya angka, 10-14 digit)</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Status *</label>
+                            <select name="status" id="edit_status" class="form-select" required>
+                                <option value="aktif">✅ Aktif</option>
+                                <option value="nonaktif">❌ Nonaktif</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                        <button type="submit" class="btn btn-edit">Update</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Fungsi search
+        document.getElementById('searchInput').addEventListener('keyup', function() {
+            const search = this.value.toLowerCase();
+            const rows = document.querySelectorAll('#vehicleTable tr');
+
+            rows.forEach(row => {
+                const plate = row.dataset.plate.toLowerCase();
+                const owner = row.dataset.owner.toLowerCase();
+
+                if (plate.includes(search) || owner.includes(search)) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+
+        // Fungsi edit dengan event delegation (XSS-safe)
+        document.addEventListener('click', function(e) {
+            // Edit button
+            if (e.target.closest('.btn-edit-vehicle')) {
+                const btn = e.target.closest('.btn-edit-vehicle');
+                const id = btn.dataset.id;
+                const plate = btn.dataset.plate;
+                const owner = btn.dataset.owner;
+                const type = btn.dataset.type;
+                const phone = btn.dataset.phone;
+                const status = btn.dataset.status;
+
+                document.getElementById('editForm').action = '/edit_vehicle/' + id;
+                document.getElementById('edit_plat').value = plate;
+                document.getElementById('edit_nama').value = owner;
+                document.getElementById('edit_jenis').value = type;
+                document.getElementById('edit_hp').value = phone;
+                document.getElementById('edit_status').value = status;
+
+                const modal = new bootstrap.Modal(document.getElementById('editModal'));
+                modal.show();
+            }
+
+            // Delete button with modal (better UX)
+            if (e.target.closest('.btn-delete-vehicle')) {
+                const btn = e.target.closest('.btn-delete-vehicle');
+                const id = btn.dataset.id;
+                const plate = btn.dataset.plate;
+
+                // Store untuk nanti dipakai di modal
+                document.getElementById('deleteModal').dataset.deleteId = id;
+                document.getElementById('deletePlateText').textContent = plate;
+
+                const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
+                modal.show();
+            }
+        });
+
+        // Handle delete confirmation
+        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+            const modal = document.getElementById('deleteModal');
+            const deleteId = modal.dataset.deleteId;
+
+            if (deleteId) {
+                window.location.href = '/delete_vehicle/' + deleteId;
+            }
+        });
+
+        // Auto dismiss alerts
+        setTimeout(function() {
+            const alerts = document.querySelectorAll('.alert');
+            alerts.forEach(alert => {
+                const bsAlert = new bootstrap.Alert(alert);
+                bsAlert.close();
+            });
+        }, 5000);
+    </script>
+</body>
+</html>

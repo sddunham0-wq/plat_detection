@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <title>📋 Log Akses - Sistem Parkir SMK</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+
+    <style>
+        body {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .header-card {
+            background: white;
+            border-radius: 15px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            border-top: 4px solid #2196F3;
+        }
+
+        .header-card h1 {
+            color: #1976D2;
+        }
+
+        .filter-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border: 2px solid #90CAF9;
+        }
+
+        .stats-row {
+            margin-bottom: 2rem;
+        }
+
+        .stat-box {
+            background: white;
+            color: #1565C0;
+            padding: 1.5rem;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border: 2px solid #90CAF9;
+        }
+
+        .stat-box h3 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 0;
+            color: #1565C0;
+        }
+
+        .stat-box p {
+            margin: 0.5rem 0 0 0;
+            color: #424242;
+            font-weight: 500;
+        }
+
+        .table-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border: 2px solid #90CAF9;
+        }
+
+        .table {
+            margin-bottom: 0;
+        }
+
+        .table thead th {
+            background: linear-gradient(135deg, #1976D2 0%, #1565C0 100%);
+            color: white;
+            border: none;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
+        }
+
+        .table tbody tr {
+            transition: all 0.2s ease;
+        }
+
+        .table tbody tr:hover {
+            background-color: #E3F2FD;
+            transform: scale(1.01);
+        }
+
+        .badge-boleh-masuk {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+        }
+
+        .badge-ditolak {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+        }
+
+        .badge-manual {
+            background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+        }
+
+        .badge-error {
+            background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+        }
+
+        .plate-number {
+            font-family: 'Courier New', monospace;
+            font-weight: 700;
+            font-size: 1.1rem;
+            letter-spacing: 2px;
+            color: #1565C0;
+            background: #E3F2FD;
+            padding: 0.3rem 0.8rem;
+            border-radius: 6px;
+            display: inline-block;
+            border: 1px solid #90CAF9;
+        }
+
+        .btn-export {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            border: none;
+            color: white;
+            font-weight: 600;
+            padding: 10px 25px;
+            box-shadow: 0 4px 15px rgba(40, 167, 69, 0.4);
+        }
+
+        .btn-export:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.6);
+            color: white;
+        }
+
+        .confidence-text {
+            font-weight: 600;
+        }
+
+        .confidence-high {
+            color: #28a745;
+        }
+
+        .confidence-medium {
+            color: #ffc107;
+        }
+
+        .confidence-low {
+            color: #dc3545;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #6c757d;
+        }
+
+        .empty-state i {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            color: #90CAF9;
+        }
+
+        .form-control, .form-select {
+            border: 2px solid #90CAF9;
+            border-radius: 8px;
+        }
+
+        .form-control:focus, .form-select:focus {
+            border-color: #2196F3;
+            box-shadow: 0 0 0 0.2rem rgba(33, 150, 243, 0.25);
+        }
+
+        .btn-outline-secondary {
+            color: #1976D2;
+            border-color: #90CAF9;
+        }
+
+        .btn-outline-secondary:hover {
+            background: #2196F3;
+            border-color: #2196F3;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #1976D2 0%, #1565C0 100%);">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-car me-2"></i>Sistem Akses Kendaraan
+            </a>
+
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <div class="navbar-nav ms-auto">
+                    <a class="nav-link" href="/">
+                        <i class="fas fa-home me-1"></i>Dashboard
+                    </a>
+                    <a class="nav-link" href="/vehicles">
+                        <i class="fas fa-list me-1"></i>Kendaraan
+                    </a>
+                    <a class="nav-link active" href="/access_logs">
+                        <i class="fas fa-history me-1"></i>Log Akses
+                    </a>
+                    <a class="nav-link" href="/detected_plates">
+                        <i class="fas fa-images me-1"></i>Gallery Plat
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-5 mb-5">
+        <!-- Header -->
+        <div class="header-card">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h1 class="mb-0">📋 Log Akses Kendaraan</h1>
+                    <p class="text-muted mb-0">Riwayat akses kendaraan masuk dan keluar</p>
+                </div>
+                <div>
+                    <a href="/" class="btn btn-outline-secondary me-2">
+                        <i class="fas fa-home"></i> Beranda
+                    </a>
+                    <a href="/export_access_logs_csv?date={{ date_filter }}&status={{ status_filter }}"
+                       class="btn btn-export">
+                        <i class="fas fa-file-csv"></i> Export CSV
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filter -->
+        <div class="filter-card">
+            <form method="GET" action="/access_logs" class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">
+                        <i class="fas fa-calendar"></i> Tanggal
+                    </label>
+                    <input type="date" name="date" class="form-control"
+                           value="{{ date_filter }}" max="{{ today }}" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">
+                        <i class="fas fa-filter"></i> Status Akses
+                    </label>
+                    <select name="status" class="form-select">
+                        <option value="all" {% if status_filter == 'all' %}selected{% endif %}>
+                            Semua Status
+                        </option>
+                        <option value="boleh_masuk" {% if status_filter == 'boleh_masuk' %}selected{% endif %}>
+                            ✅ Boleh Masuk
+                        </option>
+                        <option value="ditolak" {% if status_filter == 'ditolak' %}selected{% endif %}>
+                            ❌ Ditolak
+                        </option>
+                        <option value="manual_override" {% if status_filter == 'manual_override' %}selected{% endif %}>
+                            ⚠️ Manual Override
+                        </option>
+                        <option value="error" {% if status_filter == 'error' %}selected{% endif %}>
+                            ⚠️ Error
+                        </option>
+                    </select>
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="fas fa-search"></i> Filter
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Statistics -->
+        <div class="row stats-row">
+            <div class="col-md-3">
+                <div class="stat-box">
+                    <h3>{{ logs|length }}</h3>
+                    <p>Total Log</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box">
+                    <h3>{{ logs|selectattr('status_akses', 'equalto', 'boleh_masuk')|list|length }}</h3>
+                    <p>Boleh Masuk</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box">
+                    <h3>{{ logs|selectattr('status_akses', 'equalto', 'ditolak')|list|length }}</h3>
+                    <p>Ditolak</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-box">
+                    <h3>{{ logs|selectattr('status_akses', 'equalto', 'manual_override')|list|length }}</h3>
+                    <p>Manual</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Table -->
+        <div class="table-card">
+            {% if logs %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Plat Nomor</th>
+                                <th>Nama Pemilik</th>
+                                <th>Jenis</th>
+                                <th>Status Akses</th>
+                                <th>Palang</th>
+                                <th>Confidence</th>
+                                <th>Waktu</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for log in logs %}
+                            <tr>
+                                <td>{{ log.id_log }}</td>
+                                <td>
+                                    <span class="plate-number">{{ log.plat_terdeteksi }}</span>
+                                </td>
+                                <td>
+                                    {% if log.nama_pemilik %}
+                                        <strong>{{ log.nama_pemilik }}</strong>
+                                    {% else %}
+                                        <span class="text-muted">Tidak Dikenal</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if log.jenis_kendaraan == 'mobil' %}
+                                        🚗 Mobil
+                                    {% elif log.jenis_kendaraan == 'motor' %}
+                                        🏍️ Motor
+                                    {% elif log.jenis_kendaraan == 'truk' %}
+                                        🚚 Truk
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if log.status_akses == 'boleh_masuk' %}
+                                        <span class="badge badge-boleh-masuk">✅ Boleh Masuk</span>
+                                    {% elif log.status_akses == 'ditolak' %}
+                                        <span class="badge badge-ditolak">❌ Ditolak</span>
+                                    {% elif log.status_akses == 'manual_override' %}
+                                        <span class="badge badge-manual">⚙️ Manual</span>
+                                    {% else %}
+                                        <span class="badge badge-error">⚠️ Error</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if log.aksi_palang == 'opened' %}
+                                        <span class="text-success">🟢 Buka</span>
+                                    {% elif log.aksi_palang == 'closed' %}
+                                        <span class="text-danger">🔴 Tutup</span>
+                                    {% else %}
+                                        <span class="text-warning">⚙️ Manual</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% set confidence = log.tingkat_yakin * 100 %}
+                                    {% if confidence >= 80 %}
+                                        <span class="confidence-text confidence-high">{{ "%.0f"|format(confidence) }}%</span>
+                                    {% elif confidence >= 60 %}
+                                        <span class="confidence-text confidence-medium">{{ "%.0f"|format(confidence) }}%</span>
+                                    {% else %}
+                                        <span class="confidence-text confidence-low">{{ "%.0f"|format(confidence) }}%</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <small>
+                                        <i class="fas fa-clock me-1"></i>
+                                        {{ log.waktu_deteksi.strftime('%H:%M:%S') }}<br>
+                                        <i class="fas fa-calendar me-1"></i>
+                                        {{ log.waktu_deteksi.strftime('%d %b %Y') }}
+                                    </small>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <i class="fas fa-inbox"></i>
+                    <h4>Belum Ada Log Akses</h4>
+                    <p class="text-muted">Tidak ada log untuk tanggal {{ date_filter }}</p>
+                    <p class="text-muted">Pilih tanggal lain atau ubah filter status</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Set today's date as max
+        document.addEventListener('DOMContentLoaded', function() {
+            const today = new Date().toISOString().split('T')[0];
+            document.querySelector('input[name="date"]').setAttribute('max', today);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <title>🚗 Sistem Manajemen Akses Kendaraan</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Bootstrap CSS untuk styling yang cantik -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Font Awesome untuk icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+
+    <!-- Custom CSS -->
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+
+    <style>
+        /* Inline CSS untuk penjelasan SMK */
+        body {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            min-height: 100vh;
+        }
+
+        .camera-container {
+            border: 3px solid #90CAF9;
+            border-radius: 15px;
+            overflow: hidden;
+            background: white;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .detection-panel {
+            background: linear-gradient(135deg, #1976D2 0%, #1565C0 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .gate-status {
+            font-size: 1.3em;
+            font-weight: bold;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .gate-open {
+            background-color: #d4edda;
+            color: #155724;
+            border: 2px solid #c3e6cb;
+        }
+
+        .gate-closed {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 2px solid #f5c6cb;
+        }
+
+        .stats-card {
+            background: white;
+            color: #1565C0;
+            border-radius: 15px;
+            transition: transform 0.2s;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            border: 2px solid #90CAF9;
+        }
+
+        .stats-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 16px rgba(33, 150, 243, 0.3);
+        }
+
+        .stats-card h3 {
+            color: #1565C0;
+            font-weight: 700;
+        }
+
+        .stats-card h4 {
+            color: #2196F3;
+        }
+
+        .log-item {
+            border-left: 4px solid #2196F3;
+            background: white;
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+        }
+
+        .log-authorized { border-left-color: #28a745; }
+        .log-denied { border-left-color: #dc3545; }
+        .log-manual { border-left-color: #ffc107; }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        .card {
+            border: 2px solid #90CAF9;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+
+        .card-title {
+            color: #1565C0;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #1976D2 0%, #1565C0 100%);">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-car me-2"></i>Sistem Akses Kendaraan
+            </a>
+
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <div class="navbar-nav ms-auto">
+                    <a class="nav-link active" href="/">
+                        <i class="fas fa-home me-1"></i>Dashboard
+                    </a>
+                    <a class="nav-link" href="/vehicles">
+                        <i class="fas fa-list me-1"></i>Kendaraan
+                    </a>
+                    <a class="nav-link" href="/access_logs">
+                        <i class="fas fa-history me-1"></i>Log Akses
+                    </a>
+                    <a class="nav-link" href="/detected_plates">
+                        <i class="fas fa-images me-1"></i>Gallery Plat
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+
+        <!-- Header Stats Row -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card stats-card">
+                    <div class="card-body text-center">
+                        <h4><i class="fas fa-car"></i></h4>
+                        <h3>{{ vehicle_count }}</h3>
+                        <small>Kendaraan Terdaftar</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stats-card">
+                    <div class="card-body text-center">
+                        <h4><i class="fas fa-eye"></i></h4>
+                        <h3>{{ today_access }}</h3>
+                        <small>Akses Hari Ini</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            <i class="fas fa-traffic-light me-2"></i>Status Gate
+                        </h5>
+                        <div id="gateStatus" class="gate-status gate-closed">
+                            🔴 GATE TERTUTUP - Menunggu kendaraan...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Left Column: Camera Feed -->
+            <div class="col-lg-8">
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-video me-2"></i>Live Camera Feed
+                            <span id="cameraStatus" class="badge bg-success ms-2">
+                                <i class="fas fa-circle pulse"></i> LIVE
+                            </span>
+                        </h5>
+                    </div>
+
+                    <div class="card-body">
+                        <div class="camera-container mb-3">
+                            <img id="videoFeed"
+                                 src="{{ url_for('video_feed') }}"
+                                 style="width: 100%; height: 450px; object-fit: cover;"
+                                 alt="Camera Feed"
+                                 onerror="handleCameraError(this)">
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-4">
+                                <button class="btn btn-primary w-100" onclick="takeScreenshot()">
+                                    <i class="fas fa-camera me-2"></i>Screenshot
+                                </button>
+                            </div>
+                            <div class="col-md-4">
+                                <button class="btn btn-warning w-100" onclick="manualOverride()">
+                                    <i class="fas fa-unlock me-2"></i>Manual Override
+                                </button>
+                            </div>
+                            <div class="col-md-4">
+                                <button class="btn btn-info w-100" onclick="refreshCamera()">
+                                    <i class="fas fa-refresh me-2"></i>Refresh Camera
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- System Status Panel -->
+                <div class="card">
+                    <div class="card-header">
+                        <h6><i class="fas fa-info-circle me-2"></i>System Status</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row text-center">
+                            <div class="col-md-3">
+                                <div id="cameraStatusIndicator" class="badge bg-success p-2">
+                                    <i class="fas fa-camera"></i> Camera OK
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div id="databaseStatusIndicator" class="badge bg-success p-2">
+                                    <i class="fas fa-database"></i> Database OK
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div id="detectionStatusIndicator" class="badge bg-info p-2">
+                                    <i class="fas fa-search"></i> Detection Ready
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div id="gateStatusIndicator" class="badge bg-secondary p-2">
+                                    <i class="fas fa-door-closed"></i> Gate Closed
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Detection & Logs -->
+            <div class="col-lg-4">
+
+                <!-- Detection Panel -->
+                <div class="detection-panel">
+                    <h5><i class="fas fa-search me-2"></i>Status Deteksi Real-time</h5>
+                    <hr class="text-white">
+                    <div id="detectionStatus">
+                        <div class="text-center">
+                            <i class="fas fa-eye fa-2x mb-3"></i>
+                            <p>Menunggu deteksi plat nomor...</p>
+                            <small>Sistem akan otomatis mendeteksi setiap 5 detik</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Access Logs -->
+                <div class="card">
+                    <div class="card-header">
+                        <h6>
+                            <i class="fas fa-history me-2"></i>Log Akses Terbaru
+                            <span class="badge bg-primary">{{ recent_logs|length }}</span>
+                        </h6>
+                    </div>
+                    <div class="card-body" style="max-height: 350px; overflow-y: auto;">
+                        {% if recent_logs %}
+                            {% for log in recent_logs %}
+                            <div class="log-item log-{{ log.access_status }}">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>{{ log.plate_detected }}</strong>
+                                        {% if log.owner_name %}
+                                            <br><small class="text-muted">{{ log.owner_name }}</small>
+                                        {% endif %}
+                                    </div>
+                                    <div class="text-end">
+                                        {% if log.access_status == 'authorized' %}
+                                            <span class="badge bg-success">AUTHORIZED</span>
+                                        {% elif log.access_status == 'denied' %}
+                                            <span class="badge bg-danger">DENIED</span>
+                                        {% else %}
+                                            <span class="badge bg-warning">MANUAL</span>
+                                        {% endif %}
+                                        <br><small class="text-muted">
+                                            {{ log.detection_timestamp.strftime('%H:%M:%S') }}
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="text-center text-muted">
+                                <i class="fas fa-inbox fa-2x mb-2"></i>
+                                <p>Belum ada log akses hari ini</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div class="card-footer text-center">
+                        <a href="/access_logs" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-list me-1"></i>Lihat Semua Log
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Flash Messages Modal -->
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            <div class="position-fixed top-0 end-0 p-3" style="z-index: 1050">
+                {% for message in messages %}
+                    <div class="toast show" role="alert">
+                        <div class="toast-header">
+                            <i class="fas fa-info-circle text-primary me-2"></i>
+                            <strong class="me-auto">System Notification</strong>
+                            <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+                        </div>
+                        <div class="toast-body">{{ message }}</div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Custom JavaScript -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+
+    <!-- Inline JavaScript untuk penjelasan SMK -->
+    <script>
+        /**
+         * Penjelasan SMK: JavaScript ini seperti "remote control" website
+         * Bisa update tampilan tanpa refresh halaman (AJAX)
+         */
+
+        // Global variables
+        let detectionUpdateInterval;
+        let isSystemActive = true;
+
+        // Update detection status setiap 2 detik
+        function startDetectionUpdates() {
+            detectionUpdateInterval = setInterval(updateDetectionStatus, 2000);
+        }
+
+        function updateDetectionStatus() {
+            if (!isSystemActive) return;
+
+            fetch('/api/latest_detection')
+                .then(response => response.json())
+                .then(data => {
+                    updateDetectionPanel(data);
+                    updateGateStatus(data);
+                    updateSystemIndicators(data);
+                })
+                .catch(error => {
+                    console.error('Error fetching detection status:', error);
+                    handleConnectionError();
+                });
+        }
+
+        function updateDetectionPanel(data) {
+            const statusDiv = document.getElementById('detectionStatus');
+
+            if (data.status === 'no_detection') {
+                statusDiv.innerHTML = `
+                    <div class="text-center">
+                        <i class="fas fa-eye fa-2x mb-3"></i>
+                        <p>Menunggu deteksi plat nomor...</p>
+                        <small>Sistem akan otomatis mendeteksi setiap 5 detik</small>
+                    </div>
+                `;
+            } else {
+                const confidence = Math.round(data.confidence * 100);
+                const confidenceColor = confidence > 80 ? 'success' : confidence > 60 ? 'warning' : 'danger';
+
+                statusDiv.innerHTML = `
+                    <div class="text-center">
+                        <i class="fas fa-check-circle fa-2x mb-3 text-success"></i>
+                        <h4>${data.plate_text}</h4>
+                        <div class="progress mb-2">
+                            <div class="progress-bar bg-${confidenceColor}"
+                                 style="width: ${confidence}%">${confidence}%</div>
+                        </div>
+                        <small>Terdeteksi: ${new Date(data.timestamp).toLocaleTimeString()}</small>
+                    </div>
+                `;
+            }
+        }
+
+        function updateGateStatus(data) {
+            const gateDiv = document.getElementById('gateStatus');
+            const gateIndicator = document.getElementById('gateStatusIndicator');
+
+            if (data.system_status && data.system_status.gate_status === 'opened') {
+                gateDiv.className = 'gate-status gate-open';
+                gateDiv.innerHTML = '🟢 GATE TERBUKA - Akses diberikan';
+                gateIndicator.className = 'badge bg-success p-2';
+                gateIndicator.innerHTML = '<i class="fas fa-door-open"></i> Gate Open';
+            } else {
+                gateDiv.className = 'gate-status gate-closed';
+                gateDiv.innerHTML = '🔴 GATE TERTUTUP - Menunggu kendaraan...';
+                gateIndicator.className = 'badge bg-secondary p-2';
+                gateIndicator.innerHTML = '<i class="fas fa-door-closed"></i> Gate Closed';
+            }
+        }
+
+        function updateSystemIndicators(data) {
+            const cameraIndicator = document.getElementById('cameraStatusIndicator');
+            const detectionIndicator = document.getElementById('detectionStatusIndicator');
+
+            if (data.system_status) {
+                // Camera status
+                if (data.system_status.camera_connected) {
+                    cameraIndicator.className = 'badge bg-success p-2';
+                    cameraIndicator.innerHTML = '<i class="fas fa-camera"></i> Camera OK';
+                } else {
+                    cameraIndicator.className = 'badge bg-danger p-2';
+                    cameraIndicator.innerHTML = '<i class="fas fa-camera-slash"></i> Camera Error';
+                }
+
+                // Detection status
+                if (data.status === 'detected') {
+                    detectionIndicator.className = 'badge bg-success p-2';
+                    detectionIndicator.innerHTML = '<i class="fas fa-search"></i> Detecting';
+                } else {
+                    detectionIndicator.className = 'badge bg-info p-2';
+                    detectionIndicator.innerHTML = '<i class="fas fa-search"></i> Standby';
+                }
+            }
+        }
+
+        function takeScreenshot() {
+            const btn = event.target;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Processing...';
+
+            fetch('/api/screenshot')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showNotification('✅ Screenshot berhasil disimpan: ' + data.filename, 'success');
+                    } else {
+                        showNotification('❌ Error: ' + data.message, 'danger');
+                    }
+                })
+                .catch(error => {
+                    showNotification('❌ Error taking screenshot: ' + error, 'danger');
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-camera me-2"></i>Screenshot';
+                });
+        }
+
+        function manualOverride() {
+            if (confirm('Yakin ingin membuka gate secara manual?')) {
+                const btn = event.target;
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Opening...';
+
+                fetch('/api/manual_override')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            showNotification(data.message, 'warning');
+                            // Update gate status immediately
+                            const gateDiv = document.getElementById('gateStatus');
+                            gateDiv.className = 'gate-status gate-open';
+                            gateDiv.innerHTML = '🟡 MANUAL OVERRIDE - Gate dibuka manual';
+                        } else {
+                            showNotification('❌ Error: ' + data.message, 'danger');
+                        }
+                    })
+                    .catch(error => {
+                        showNotification('❌ Error: ' + error, 'danger');
+                    })
+                    .finally(() => {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fas fa-unlock me-2"></i>Manual Override';
+                    });
+            }
+        }
+
+        function refreshCamera() {
+            const videoFeed = document.getElementById('videoFeed');
+            const timestamp = new Date().getTime();
+            videoFeed.src = '/video_feed?' + timestamp;
+            showNotification('📹 Camera refreshed', 'info');
+        }
+
+        function handleCameraError(img) {
+            img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450"><rect width="800" height="450" fill="%23f8f9fa"/><text x="400" y="225" text-anchor="middle" fill="%23666" font-size="24">📹 Camera tidak tersedia</text></svg>';
+            document.getElementById('cameraStatus').innerHTML = '<i class="fas fa-circle text-danger"></i> OFFLINE';
+        }
+
+        function handleConnectionError() {
+            document.getElementById('cameraStatusIndicator').className = 'badge bg-danger p-2';
+            document.getElementById('cameraStatusIndicator').innerHTML = '<i class="fas fa-exclamation-triangle"></i> Connection Error';
+        }
+
+        function showNotification(message, type = 'info') {
+            // Create toast notification
+            const toastContainer = document.querySelector('.position-fixed') || createToastContainer();
+
+            const toast = document.createElement('div');
+            toast.className = 'toast show';
+            toast.innerHTML = `
+                <div class="toast-header">
+                    <i class="fas fa-info-circle text-${type} me-2"></i>
+                    <strong class="me-auto">System</strong>
+                    <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+                </div>
+                <div class="toast-body">${message}</div>
+            `;
+
+            toastContainer.appendChild(toast);
+
+            // Auto remove after 5 seconds
+            setTimeout(() => {
+                toast.remove();
+            }, 5000);
+        }
+
+        function createToastContainer() {
+            const container = document.createElement('div');
+            container.className = 'position-fixed top-0 end-0 p-3';
+            container.style.zIndex = '1050';
+            document.body.appendChild(container);
+            return container;
+        }
+
+        // Auto refresh page setiap 5 menit untuk update data
+        setInterval(() => {
+            if (document.visibilityState === 'visible') {
+                location.reload();
+            }
+        }, 300000); // 5 minutes
+
+        // Start detection updates saat page load
+        document.addEventListener('DOMContentLoaded', function() {
+            startDetectionUpdates();
+
+            // Check initial system status
+            fetch('/api/system_status')
+                .then(response => response.json())
+                .then(data => {
+                    updateSystemIndicators({system_status: data});
+                })
+                .catch(error => console.error('Error checking system status:', error));
+        });
+
+        // Pause updates when page is not visible (optimization)
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible') {
+                if (!detectionUpdateInterval) {
+                    startDetectionUpdates();
+                }
+                isSystemActive = true;
+            } else {
+                isSystemActive = false;
+            }
+        });
+    </script>
+</body>
+</html>
