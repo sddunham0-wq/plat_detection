@@ -20,6 +20,17 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
 
+# Import image deskewing module
+try:
+    from utils.image_deskew import ImageDeskewer
+    DESKEW_AVAILABLE = True
+except ImportError:
+    try:
+        from image_deskew import ImageDeskewer
+        DESKEW_AVAILABLE = True
+    except ImportError:
+        DESKEW_AVAILABLE = False
+
 @dataclass
 class PlateDetection:
     text: str
@@ -36,26 +47,41 @@ class YOLOPlateDetector:
     YOLOv8-based license plate detector yang akurat seperti object detection
     """
     
-    def __init__(self, confidence=0.5, streaming_mode=True):
+    def __init__(self, confidence=0.5, streaming_mode=True, enable_deskew=True):
         """
         Initialize YOLO plate detector
-        
+
         Args:
             confidence: Confidence threshold for plate detection
             streaming_mode: Enable optimizations for real-time streaming
+            enable_deskew: Enable image deskewing for tilted plates (default: True)
         """
         self.confidence = confidence
         self.streaming_mode = streaming_mode
+        self.enable_deskew = enable_deskew and DESKEW_AVAILABLE
         self.model = None
         self.enabled = False
         self.logger = logging.getLogger(__name__)
-        
+
         # Statistics tracking
         self.total_detections = 0
         self.successful_ocr = 0
         self.failed_ocr = 0
         self.false_positives = 0
-        
+
+        # Image deskewing setup
+        if self.enable_deskew:
+            self.deskewer = ImageDeskewer(
+                max_skew_angle=30.0,
+                enable_perspective_correction=True,
+                enable_enhancement=True
+            )
+            self.logger.info("✅ Image deskewing enabled for tilted plate correction")
+        else:
+            self.deskewer = None
+            if not DESKEW_AVAILABLE:
+                self.logger.warning("⚠️ Image deskewing module not available")
+
         # OCR setup
         try:
             import pytesseract
@@ -65,7 +91,7 @@ class YOLOPlateDetector:
         except ImportError:
             self.ocr_available = False
             self.logger.warning("Tesseract not available for text extraction")
-        
+
         self._setup_model()
     
     def _setup_model(self):
@@ -246,31 +272,71 @@ class YOLOPlateDetector:
     
     def _extract_text_with_ocr(self, plate_roi: np.ndarray) -> Tuple[str, float]:
         """
-        Extract text from plate region using OCR
+        Extract text from plate region using OCR with deskewing for tilted plates
         """
         if not self.ocr_available or plate_roi.size == 0:
             return "", 0.0
-        
+
         try:
             import pytesseract
-            
-            # Preprocess image for better OCR
+
+            # Use deskewing pipeline if available
+            if self.enable_deskew and self.deskewer is not None:
+                # Generate multiple preprocessed variants (primary + rotated angles)
+                preprocessed_variants = self.deskewer.preprocess(
+                    plate_roi,
+                    multi_angle_attempts=True
+                )
+
+                # Try OCR on each variant and pick best result
+                best_text = ""
+                best_confidence = 0.0
+
+                for variant in preprocessed_variants:
+                    # Apply final preprocessing for OCR
+                    ocr_ready = self._preprocess_for_ocr(variant)
+
+                    # Extract text
+                    text = pytesseract.image_to_string(
+                        ocr_ready,
+                        config=self.ocr_config
+                    ).strip().upper()
+
+                    # Clean text
+                    text = ''.join(c for c in text if c.isalnum())
+
+                    # Calculate confidence
+                    confidence = self._calculate_ocr_confidence(text)
+
+                    # Keep best result
+                    if confidence > best_confidence and len(text) >= 3:
+                        best_text = text
+                        best_confidence = confidence
+
+                if best_text:
+                    self.logger.debug(f"OCR (deskewed): '{best_text}' (conf: {best_confidence:.1f}%)")
+                    return best_text, best_confidence
+
+                # If no good result from variants, try original
+                self.logger.debug("No good result from deskewed variants, trying original")
+
+            # Fallback: Standard preprocessing without deskewing
             preprocessed = self._preprocess_for_ocr(plate_roi)
-            
+
             # Extract text
             text = pytesseract.image_to_string(
-                preprocessed, 
+                preprocessed,
                 config=self.ocr_config
             ).strip().upper()
-            
+
             # Clean text
             text = ''.join(c for c in text if c.isalnum())
-            
+
             # Simple confidence based on text characteristics
             confidence = self._calculate_ocr_confidence(text)
-            
+
             return text, confidence
-            
+
         except Exception as e:
             self.logger.warning(f"OCR extraction failed: {e}")
             return "", 0.0

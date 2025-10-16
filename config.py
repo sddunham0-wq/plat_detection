@@ -4,6 +4,10 @@ Pengaturan lengkap untuk deteksi plat nomor real-time
 """
 
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 class CCTVConfig:
     """Pengaturan CCTV dan Video Stream"""
@@ -236,9 +240,9 @@ class MotorcycleDetectionConfig:
 
 class DatabaseConfig:
     """Pengaturan database untuk menyimpan hasil"""
-    
+
     DATABASE_PATH = "detected_plates.db"
-    
+
     # Table schema
     CREATE_TABLE_SQL = """
     CREATE TABLE IF NOT EXISTS detections (
@@ -252,9 +256,81 @@ class DatabaseConfig:
     )
     """
 
+class MySQLConfig:
+    """Pengaturan MySQL database untuk access control system"""
+
+    # Load from environment variables with fallback defaults
+    MYSQL_HOST = os.getenv('MYSQL_HOST', '127.0.0.1')
+    MYSQL_PORT = int(os.getenv('MYSQL_PORT', 3307))
+    MYSQL_USER = os.getenv('MYSQL_USER', 'root')
+    MYSQL_PASSWORD = os.getenv('MYSQL_PASSWORD', '')
+    MYSQL_DATABASE = os.getenv('MYSQL_DATABASE', 'plat_detection')
+
+    # Connection pool settings
+    MYSQL_POOL_SIZE = int(os.getenv('MYSQL_POOL_SIZE', 5))
+    MYSQL_MAX_OVERFLOW = int(os.getenv('MYSQL_MAX_OVERFLOW', 10))
+    MYSQL_POOL_TIMEOUT = int(os.getenv('MYSQL_POOL_TIMEOUT', 30))
+
+    # Connection settings
+    MYSQL_CONNECT_TIMEOUT = 10
+    MYSQL_READ_TIMEOUT = 30
+    MYSQL_WRITE_TIMEOUT = 30
+
+    # Auto-reconnect settings
+    MYSQL_AUTO_RECONNECT = True
+    MYSQL_MAX_RECONNECT_ATTEMPTS = 3
+    MYSQL_RECONNECT_DELAY = 5
+
+    # Feature flags
+    USE_MYSQL_DATABASE = os.getenv('USE_MYSQL_DATABASE', 'True').lower() == 'true'
+    ENABLE_ACCESS_CONTROL = os.getenv('ENABLE_ACCESS_CONTROL', 'True').lower() == 'true'
+    LOG_DENIED_ACCESS = os.getenv('LOG_DENIED_ACCESS', 'True').lower() == 'true'
+    AUTO_UPDATE_VEHICLE_STATUS = os.getenv('AUTO_UPDATE_VEHICLE_STATUS', 'True').lower() == 'true'
+
+    # Dual mode settings
+    ENABLE_SQLITE_LOGGING = os.getenv('ENABLE_SQLITE_LOGGING', 'True').lower() == 'true'
+    ENABLE_MYSQL_ACCESS_CONTROL = os.getenv('ENABLE_MYSQL_ACCESS_CONTROL', 'True').lower() == 'true'
+
+class ImagePreprocessingConfig:
+    """Pengaturan image preprocessing dan deskewing untuk tilted plates"""
+
+    # Enable/disable image deskewing (DEFAULT: ENABLED for better accuracy)
+    ENABLE_DESKEWING = os.getenv('ENABLE_DESKEWING', 'True').lower() == 'true'
+
+    # Skew detection parameters
+    MAX_SKEW_ANGLE = 30.0                # Maximum skew angle to detect (degrees)
+    MIN_SKEW_CORRECTION_THRESHOLD = 0.5  # Minimum angle to trigger correction (degrees)
+
+    # Perspective correction
+    ENABLE_PERSPECTIVE_CORRECTION = os.getenv('ENABLE_PERSPECTIVE_CORRECTION', 'True').lower() == 'true'
+
+    # Image enhancement
+    ENABLE_ENHANCEMENT = os.getenv('ENABLE_ENHANCEMENT', 'True').lower() == 'true'
+    CLAHE_CLIP_LIMIT = 2.0              # CLAHE contrast enhancement clip limit
+    CLAHE_TILE_GRID_SIZE = (8, 8)       # CLAHE tile grid size
+
+    # Denoising parameters
+    DENOISE_H = 10                       # Filter strength for denoising
+    DENOISE_TEMPLATE_WINDOW_SIZE = 7     # Template window size
+    DENOISE_SEARCH_WINDOW_SIZE = 21      # Search window size
+
+    # Sharpening parameters
+    SHARPENING_KERNEL = [[-1, -1, -1],
+                         [-1,  9, -1],
+                         [-1, -1, -1]]   # Sharpening kernel
+
+    # Multi-angle OCR attempts
+    ENABLE_MULTI_ANGLE_OCR = os.getenv('ENABLE_MULTI_ANGLE_OCR', 'True').lower() == 'true'
+    MULTI_ANGLE_ROTATIONS = [-10, -5, 5, 10]  # Angles to try for OCR (degrees)
+    MAX_OCR_VARIANTS = 5                 # Maximum preprocessing variants to try
+
+    # Performance optimization
+    PREPROCESSING_TIMEOUT = 2.0          # Max time for preprocessing pipeline (seconds)
+    ENABLE_PREPROCESSING_CACHE = True    # Cache preprocessing results for same frames
+
 class SystemConfig:
     """Pengaturan sistem dan logging"""
-    
+
     # Folders
     OUTPUT_FOLDER = "detected_plates"     # Folder untuk simpan gambar hasil
     LOG_FOLDER = "logs"                   # Folder untuk log files

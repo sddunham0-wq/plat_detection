@@ -19,7 +19,15 @@ from utils.tracking_manager import TrackingManager
 from utils.person_detector import PersonDetector, PersonDetection  # NEW: Person detection
 from utils.plate_validator import PlateValidator  # NEW: Indonesian plate validation
 from database import PlateDatabase
-from config import TrackingConfig, PersonDetectionConfig  # NEW: Person detection config
+from config import TrackingConfig, PersonDetectionConfig, MySQLConfig  # NEW: Person detection config + MySQL config
+
+# MySQL Integration (optional)
+try:
+    from mysql_database import MySQLPlateDatabase
+    from access_controller import AccessController
+    MYSQL_AVAILABLE = True
+except ImportError:
+    MYSQL_AVAILABLE = False
 
 @dataclass
 class StreamFrame:
@@ -38,19 +46,27 @@ class HeadlessStreamManager:
     Manager untuk headless video streaming ke browser
     """
     
-    def __init__(self, source: str, database: PlateDatabase = None, enable_yolo: bool = False, enable_tracking: bool = True, enable_person_detection: bool = None):
+    def __init__(self, source: str, database: PlateDatabase = None, enable_yolo: bool = False, enable_tracking: bool = True, enable_person_detection: bool = None, use_mysql: bool = None, enable_access_control: bool = None):
         """
         Initialize stream manager
 
         Args:
             source: Video source (RTSP URL, webcam index, file)
-            database: Database instance untuk save results
+            database: Database instance untuk save results (SQLite)
             enable_yolo: Deprecated - no longer used (kept for compatibility)
             enable_tracking: Enable object tracking system
             enable_person_detection: Enable person detection (None = use config default)
+            use_mysql: Enable MySQL access control (None = use config default)
+            enable_access_control: Enable access control system (None = use config default)
         """
         self.source = source
         self.database = database or PlateDatabase()
+
+        # MySQL Integration (Hybrid Mode: SQLite + MySQL) - will be initialized after logger
+        self.use_mysql = use_mysql if use_mysql is not None else (MYSQL_AVAILABLE and MySQLConfig.USE_MYSQL_DATABASE)
+        self.enable_access_control = enable_access_control if enable_access_control is not None else (self.use_mysql and MySQLConfig.ENABLE_ACCESS_CONTROL)
+        self.mysql_db = None
+        self.access_controller = None
 
         # Components
         self.video_stream = None
@@ -112,7 +128,26 @@ class HeadlessStreamManager:
         
         # Setup logging
         self.logger = logging.getLogger(__name__)
-        
+
+        # Initialize MySQL (after logger is ready)
+        if self.use_mysql and MYSQL_AVAILABLE:
+            try:
+                self.mysql_db = MySQLPlateDatabase()
+                if self.enable_access_control:
+                    self.access_controller = AccessController(self.mysql_db)
+                    self.logger.info("✅ MySQL Access Control enabled")
+                else:
+                    self.logger.info("✅ MySQL database enabled (logging only)")
+            except Exception as e:
+                self.logger.warning(f"⚠️ MySQL initialization failed: {str(e)}")
+                self.logger.info("   Falling back to SQLite only")
+                self.use_mysql = False
+                self.enable_access_control = False
+        elif self.use_mysql and not MYSQL_AVAILABLE:
+            self.logger.warning("⚠️ MySQL requested but not available. Install: pip install pymysql python-dotenv")
+            self.use_mysql = False
+            self.enable_access_control = False
+
         # Initialize tracking manager
         if self.tracking_enabled:
             self.logger.info("Initializing tracking system...")
@@ -485,14 +520,32 @@ class HeadlessStreamManager:
                     final_detections.append(detection)
                 
                 if final_detections:
-                    # Save to database
+                    # Save to database (Hybrid Mode: SQLite + MySQL)
                     for detection in final_detections:
                         try:
+                            # Always save to SQLite (complete logging)
                             self.database.save_detection(
                                 detection,
                                 source_info=str(self.source),
                                 save_image=True
                             )
+
+                            # Process through Access Controller if enabled (MySQL)
+                            if self.enable_access_control and self.access_controller:
+                                access_result = self.access_controller.process_detection(
+                                    detection,
+                                    image_path=None  # Could save image path here if needed
+                                )
+
+                                # Attach access_result to detection for frontend
+                                detection.access_result = access_result
+
+                                # Log access result
+                                if access_result['access'] == 'Authorized':
+                                    self.logger.info(f"✅ ACCESS AUTHORIZED: {detection.text} - {access_result['vehicle']['owner_name']}")
+                                elif access_result['access'] == 'Denied':
+                                    self.logger.warning(f"❌ ACCESS DENIED: {detection.text} - Not registered")
+
                         except Exception as e:
                             self.logger.error(f"Database save error: {str(e)}")
 

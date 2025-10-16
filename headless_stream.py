@@ -395,20 +395,35 @@ def on_new_detection(detections):
     """Callback untuk new detection - emit ke WebSocket"""
     try:
         detection_data = []
+        access_results = []
+
         for det in detections:
-            detection_data.append({
+            det_info = {
                 'text': det.text,
                 'confidence': det.confidence,
                 'bbox': det.bbox,
                 'timestamp': time.time()
-            })
-        
+            }
+
+            # Check if detection has access control result (MySQL integration)
+            if hasattr(det, 'access_result') and det.access_result:
+                det_info['access_result'] = det.access_result
+                access_results.append(det.access_result)
+
+            detection_data.append(det_info)
+
         # Emit detection via WebSocket
         socketio.emit('new_detection', {
             'detections': detection_data,
             'count': len(detection_data)
         })
-        
+
+        # Emit access control results separately (if any)
+        if access_results:
+            for access_result in access_results:
+                socketio.emit('access_control_result', access_result)
+                logger.info(f"📤 Sent access control result: {access_result['access']} - {access_result['plate_number']}")
+
     except Exception as e:
         logger.error(f"Error emitting detection: {str(e)}")
 

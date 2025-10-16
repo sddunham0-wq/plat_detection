@@ -9,6 +9,8 @@ matplotlib==3.7.2
 
 # Database dan File Handling
 sqlite3-utils==3.34
+pymysql==1.1.0
+python-dotenv==1.0.0
 
 # Networking untuk RTSP streams
 requests==2.31.0
