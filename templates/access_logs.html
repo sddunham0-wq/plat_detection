@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <title>📋 Log Akses - Sistem Parkir SMK</title>
+    <title>Log Akses - Sistem Parkir SMK</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
@@ -136,17 +136,16 @@
         }
 
         .btn-export {
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            background: green;
             border: none;
             color: white;
             font-weight: 600;
             padding: 10px 25px;
-            box-shadow: 0 4px 15px rgba(40, 167, 69, 0.4);
         }
 
         .btn-export:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.6);
+            background: darkgreen;
             color: white;
         }
 
@@ -236,7 +235,7 @@
         <div class="header-card">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h1 class="mb-0">📋 Log Akses Kendaraan</h1>
+                    <h1 class="mb-0">Log Akses Kendaraan</h1>
                     <p class="text-muted mb-0">Riwayat akses kendaraan masuk dan keluar</p>
                 </div>
                 <div>
@@ -270,16 +269,16 @@
                             Semua Status
                         </option>
                         <option value="boleh_masuk" {% if status_filter == 'boleh_masuk' %}selected{% endif %}>
-                            ✅ Boleh Masuk
+                            Boleh Masuk
                         </option>
                         <option value="ditolak" {% if status_filter == 'ditolak' %}selected{% endif %}>
-                            ❌ Ditolak
+                            Ditolak
                         </option>
                         <option value="manual_override" {% if status_filter == 'manual_override' %}selected{% endif %}>
-                            ⚠️ Manual Override
+                            Manual Override
                         </option>
                         <option value="error" {% if status_filter == 'error' %}selected{% endif %}>
-                            ⚠️ Error
+                            Error
                         </option>
                     </select>
                 </div>
@@ -352,33 +351,33 @@
                                 </td>
                                 <td>
                                     {% if log.jenis_kendaraan == 'mobil' %}
-                                        🚗 Mobil
+                                        Mobil
                                     {% elif log.jenis_kendaraan == 'motor' %}
-                                        🏍️ Motor
+                                        Motor
                                     {% elif log.jenis_kendaraan == 'truk' %}
-                                        🚚 Truk
+                                        Truk
                                     {% else %}
                                         -
                                     {% endif %}
                                 </td>
                                 <td>
                                     {% if log.status_akses == 'boleh_masuk' %}
-                                        <span class="badge badge-boleh-masuk">✅ Boleh Masuk</span>
+                                        <span class="badge badge-boleh-masuk">Boleh Masuk</span>
                                     {% elif log.status_akses == 'ditolak' %}
-                                        <span class="badge badge-ditolak">❌ Ditolak</span>
+                                        <span class="badge badge-ditolak">Ditolak</span>
                                     {% elif log.status_akses == 'manual_override' %}
-                                        <span class="badge badge-manual">⚙️ Manual</span>
+                                        <span class="badge badge-manual">Manual</span>
                                     {% else %}
-                                        <span class="badge badge-error">⚠️ Error</span>
+                                        <span class="badge badge-error">Error</span>
                                     {% endif %}
                                 </td>
                                 <td>
                                     {% if log.aksi_palang == 'opened' %}
-                                        <span class="text-success">🟢 Buka</span>
+                                        <span class="text-success">Buka</span>
                                     {% elif log.aksi_palang == 'closed' %}
-                                        <span class="text-danger">🔴 Tutup</span>
+                                        <span class="text-danger">Tutup</span>
                                     {% else %}
-                                        <span class="text-warning">⚙️ Manual</span>
+                                        <span class="text-warning">Manual</span>
                                     {% endif %}
                                 </td>
                                 <td>

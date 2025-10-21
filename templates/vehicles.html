@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <html lang="id">
+
 <head>
-    <title>🚗 Daftar Kendaraan</title>
+    <title>Daftar Kendaraan</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
@@ -213,7 +214,7 @@
         .modal-content {
             border: none;
             border-radius: 8px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
         }
 
         /* Outline button for secondary actions */
@@ -258,143 +259,146 @@
         * {
             transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
         }
-    </style>
+    </style>    
 </head>
+
 <body>
-    <div class="container mt-5 mb-5">
+    <header style="background-color: #1976d2;">
+        <div class="container mt-5 mb-5">
 
-        <!-- Header -->
-        <div class="mb-4">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <h1 class="page-title mb-1">Daftar Kendaraan</h1>
-                    <p class="mb-0" style="font-size: 0.95rem; color: #64b5f6;">Kelola data kendaraan yang boleh masuk</p>
-                </div>
-                <div>
-                    <a href="/" class="btn btn-outline-secondary me-2">
-                        <i class="fas fa-home"></i> Beranda
-                    </a>
-                    <button class="btn btn-add text-white" data-bs-toggle="modal" data-bs-target="#addModal">
-                        <i class="fas fa-plus text-white"></i> Tambah
-                    </button>
+            <!-- Header -->
+            <div class="mb-4">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h1 class="page-title text-white mb-1">Daftar Kendaraan</h1>
+                        <p class="mb-0" style="font-size: 0.95rem; color: white;">Kelola data kendaraan yang boleh
+                            masuk</p>
+                    </div>
+                    <div>
+                        <a href="/" class="btn btn-outline-secondary me-2">
+                            <i class="fas fa-home"></i> Beranda
+                        </a>
+                        <button class="btn btn-add text-white" data-bs-toggle="modal" data-bs-target="#addModal">
+                            <i class="fas fa-plus text-white"></i> Tambah
+                        </button>
+                    </div>
                 </div>
             </div>
-        </div>
+    </header>
 
-        <!-- Pesan flash -->
-        {% with messages = get_flashed_messages() %}
-            {% if messages %}
-                {% for message in messages %}
-                <div class="alert alert-info alert-dismissible fade show">
-                    {{ message }}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    <!-- Pesan flash -->
+    {% with messages = get_flashed_messages() %}
+    {% if messages %}
+    {% for message in messages %}
+    <div class="alert alert-info alert-dismissible fade show">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+    {% endif %}
+    {% endwith %}
+
+    <!-- Statistik -->
+    <div class="row mb-4">
+        <div class="col-md-3 mb-3 mb-md-0">
+            <div class="stat-card text-center">
+                <div class="stat-number">{{ vehicles|length }}</div>
+                <div class="stat-label">Total Kendaraan</div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3 mb-md-0">
+            <div class="stat-card text-center">
+                <div class="stat-number text-success">{{ vehicles|selectattr('status', 'equalto', 'aktif')|list|length
+                    }}</div>
+                <div class="stat-label">Aktif</div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3 mb-md-0">
+            <div class="stat-card text-center">
+                <div class="stat-number">{{ vehicles|selectattr('jenis_kendaraan', 'equalto', 'mobil')|list|length }}
                 </div>
-                {% endfor %}
+                <div class="stat-label">Mobil</div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3 mb-md-0">
+            <div class="stat-card text-center">
+                <div class="stat-number">{{ vehicles|selectattr('jenis_kendaraan', 'equalto', 'motor')|list|length }}
+                </div>
+                <div class="stat-label">Motor</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search -->
+    <div class="mb-4">
+        <input type="text" id="searchInput" class="form-control" placeholder="Cari plat nomor atau nama pemilik...">
+    </div>
+
+    <!-- Tabel Kendaraan -->
+    <div class="card">
+        <div class="card-body">
+            {% if vehicles %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>No</th>
+                            <th>Plat Nomor</th>
+                            <th>Nama Pemilik</th>
+                            <th>Jenis</th>
+                            <th>Status</th>
+                            <th>No HP</th>
+                            <th>Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="vehicleTable">
+                        {% for vehicle in vehicles %}
+                        <tr data-plate="{{ vehicle.nomor_plat }}" data-owner="{{ vehicle.nama_pemilik }}">
+                            <td>{{ loop.index }}</td>
+                            <td>
+                                <span class="plate-number">{{ vehicle.nomor_plat }}</span>
+                            </td>
+                            <td><strong>{{ vehicle.nama_pemilik }}</strong></td>
+                            <td>
+                                {% if vehicle.jenis_kendaraan == 'mobil' %}Mobil{% endif %}
+                                {% if vehicle.jenis_kendaraan == 'motor' %}Motor{% endif %}
+                                {% if vehicle.jenis_kendaraan == 'truk' %}Truk{% endif %}
+                            </td>
+                            <td>
+                                {% if vehicle.status == 'aktif' %}
+                                <span class="badge badge-aktif">Aktif</span>
+                                {% else %}
+                                <span class="badge badge-nonaktif">Nonaktif</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ vehicle.nomor_hp or '-' }}</td>
+                            <td>
+                                <button class="btn btn-sm btn-edit text-white btn-edit-vehicle"
+                                    data-id="{{ vehicle.id_kendaraan }}" data-plate="{{ vehicle.nomor_plat }}"
+                                    data-owner="{{ vehicle.nama_pemilik|e }}" data-type="{{ vehicle.jenis_kendaraan }}"
+                                    data-phone="{{ vehicle.nomor_hp or '' }}" data-status="{{ vehicle.status }}">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-sm btn-delete text-white btn-delete-vehicle"
+                                    data-id="{{ vehicle.id_kendaraan }}" data-plate="{{ vehicle.nomor_plat }}">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center p-5">
+                <i class="fas fa-car fa-3x mb-3" style="color: #dee2e6;"></i>
+                <h5 class="text-muted mb-2">Belum ada kendaraan</h5>
+                <p class="text-muted mb-0" style="font-size: 0.9rem;">Klik tombol <strong>Tambah</strong> untuk
+                    mendaftarkan kendaraan baru</p>
+            </div>
             {% endif %}
-        {% endwith %}
-
-        <!-- Statistik -->
-        <div class="row mb-4">
-            <div class="col-md-3 mb-3 mb-md-0">
-                <div class="stat-card text-center">
-                    <div class="stat-number">{{ vehicles|length }}</div>
-                    <div class="stat-label">Total Kendaraan</div>
-                </div>
-            </div>
-            <div class="col-md-3 mb-3 mb-md-0">
-                <div class="stat-card text-center">
-                    <div class="stat-number text-success">{{ vehicles|selectattr('status', 'equalto', 'aktif')|list|length }}</div>
-                    <div class="stat-label">Aktif</div>
-                </div>
-            </div>
-            <div class="col-md-3 mb-3 mb-md-0">
-                <div class="stat-card text-center">
-                    <div class="stat-number">{{ vehicles|selectattr('jenis_kendaraan', 'equalto', 'mobil')|list|length }}</div>
-                    <div class="stat-label">Mobil</div>
-                </div>
-            </div>
-            <div class="col-md-3 mb-3 mb-md-0">
-                <div class="stat-card text-center">
-                    <div class="stat-number">{{ vehicles|selectattr('jenis_kendaraan', 'equalto', 'motor')|list|length }}</div>
-                    <div class="stat-label">Motor</div>
-                </div>
-            </div>
         </div>
-
-        <!-- Search -->
-        <div class="mb-4">
-            <input type="text" id="searchInput" class="form-control"
-                   placeholder="Cari plat nomor atau nama pemilik...">
-        </div>
-
-        <!-- Tabel Kendaraan -->
-        <div class="card">
-            <div class="card-body">
-                {% if vehicles %}
-                <div class="table-responsive">
-                    <table class="table table-hover">
-                        <thead>
-                            <tr>
-                                <th>No</th>
-                                <th>Plat Nomor</th>
-                                <th>Nama Pemilik</th>
-                                <th>Jenis</th>
-                                <th>Status</th>
-                                <th>No HP</th>
-                                <th>Aksi</th>
-                            </tr>
-                        </thead>
-                        <tbody id="vehicleTable">
-                            {% for vehicle in vehicles %}
-                            <tr data-plate="{{ vehicle.nomor_plat }}" data-owner="{{ vehicle.nama_pemilik }}">
-                                <td>{{ loop.index }}</td>
-                                <td>
-                                    <span class="plate-number">{{ vehicle.nomor_plat }}</span>
-                                </td>
-                                <td><strong>{{ vehicle.nama_pemilik }}</strong></td>
-                                <td>
-                                    {% if vehicle.jenis_kendaraan == 'mobil' %}Mobil{% endif %}
-                                    {% if vehicle.jenis_kendaraan == 'motor' %}Motor{% endif %}
-                                    {% if vehicle.jenis_kendaraan == 'truk' %}Truk{% endif %}
-                                </td>
-                                <td>
-                                    {% if vehicle.status == 'aktif' %}
-                                        <span class="badge badge-aktif">Aktif</span>
-                                    {% else %}
-                                        <span class="badge badge-nonaktif">Nonaktif</span>
-                                    {% endif %}
-                                </td>
-                                <td>{{ vehicle.nomor_hp or '-' }}</td>
-                                <td>
-                                    <button class="btn btn-sm btn-edit text-white btn-edit-vehicle"
-                                            data-id="{{ vehicle.id_kendaraan }}"
-                                            data-plate="{{ vehicle.nomor_plat }}"
-                                            data-owner="{{ vehicle.nama_pemilik|e }}"
-                                            data-type="{{ vehicle.jenis_kendaraan }}"
-                                            data-phone="{{ vehicle.nomor_hp or '' }}"
-                                            data-status="{{ vehicle.status }}">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-delete text-white btn-delete-vehicle"
-                                            data-id="{{ vehicle.id_kendaraan }}"
-                                            data-plate="{{ vehicle.nomor_plat }}">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                {% else %}
-                <div class="text-center p-5">
-                    <i class="fas fa-car fa-3x mb-3" style="color: #dee2e6;"></i>
-                    <h5 class="text-muted mb-2">Belum ada kendaraan</h5>
-                    <p class="text-muted mb-0" style="font-size: 0.9rem;">Klik tombol <strong>Tambah</strong> untuk mendaftarkan kendaraan baru</p>
-                </div>
-                {% endif %}
-            </div>
-        </div>
+    </div>
     </div>
 
     <!-- Modal Tambah -->
@@ -409,18 +413,15 @@
                     <div class="modal-body">
                         <div class="mb-3">
                             <label class="form-label">Plat Nomor *</label>
-                            <input type="text" name="nomor_plat" class="form-control"
-                                   required placeholder="Contoh: B1234ABC"
-                                   pattern="[A-Z]{1,2}\s?\d{1,4}\s?[A-Z]{1,3}"
-                                   title="Format: B1234ABC atau B 1234 ABC"
-                                   maxlength="15">
+                            <input type="text" name="nomor_plat" class="form-control" required
+                                placeholder="Contoh: B1234ABC" pattern="[A-Z]{1,2}\s?\d{1,4}\s?[A-Z]{1,3}"
+                                title="Format: B1234ABC atau B 1234 ABC" maxlength="15">
                             <small class="text-muted">Format: B1234ABC (spasi akan dihapus otomatis)</small>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Nama Pemilik *</label>
-                            <input type="text" name="nama_pemilik" class="form-control"
-                                   required placeholder="Contoh: Pak Budi"
-                                   maxlength="100">
+                            <input type="text" name="nama_pemilik" class="form-control" required
+                                placeholder="Contoh: Pak Budi" maxlength="100">
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Jenis Kendaraan *</label>
@@ -432,17 +433,14 @@
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Nomor HP</label>
-                            <input type="tel" name="nomor_hp" class="form-control"
-                                   placeholder="Contoh: 08123456789"
-                                   pattern="^08[0-9]{8,12}$"
-                                   title="Format: 08XXXXXXXXXX (10-14 digit)"
-                                   maxlength="14">
+                            <input type="tel" name="nomor_hp" class="form-control" placeholder="Contoh: 08123456789"
+                                pattern="^08[0-9]{8,12}$" title="Format: 08XXXXXXXXXX (10-14 digit)" maxlength="14">
                             <small class="text-muted">Format: 08123456789 (hanya angka, 10-14 digit)</small>
                         </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
-                        <button type="submit" class="btn btn-add">Simpan</button>
+                        <button type="submit" class="btn btn-add text-white">Simpan</button>
                     </div>
                 </form>
             </div>
@@ -499,9 +497,7 @@
                         <div class="mb-3">
                             <label class="form-label">Nomor HP</label>
                             <input type="tel" name="nomor_hp" id="edit_hp" class="form-control"
-                                   pattern="^08[0-9]{8,12}$"
-                                   title="Format: 08XXXXXXXXXX (10-14 digit)"
-                                   maxlength="14">
+                                pattern="^08[0-9]{8,12}$" title="Format: 08XXXXXXXXXX (10-14 digit)" maxlength="14">
                             <small class="text-muted">Format: 08123456789 (hanya angka, 10-14 digit)</small>
                         </div>
                         <div class="mb-3">
@@ -526,7 +522,7 @@
 
     <script>
         // Fungsi search
-        document.getElementById('searchInput').addEventListener('keyup', function() {
+        document.getElementById('searchInput').addEventListener('keyup', function () {
             const search = this.value.toLowerCase();
             const rows = document.querySelectorAll('#vehicleTable tr');
 
@@ -543,7 +539,7 @@
         });
 
         // Fungsi edit dengan event delegation (XSS-safe)
-        document.addEventListener('click', function(e) {
+        document.addEventListener('click', function (e) {
             // Edit button
             if (e.target.closest('.btn-edit-vehicle')) {
                 const btn = e.target.closest('.btn-edit-vehicle');
@@ -581,7 +577,7 @@
         });
 
         // Handle delete confirmation
-        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+        document.getElementById('confirmDeleteBtn').addEventListener('click', function () {
             const modal = document.getElementById('deleteModal');
             const deleteId = modal.dataset.deleteId;
 
@@ -591,7 +587,7 @@
         });
 
         // Auto dismiss alerts
-        setTimeout(function() {
+        setTimeout(function () {
             const alerts = document.querySelectorAll('.alert');
             alerts.forEach(alert => {
                 const bsAlert = new bootstrap.Alert(alert);
@@ -600,4 +596,5 @@
         }, 5000);
     </script>
 </body>
+
 </html>

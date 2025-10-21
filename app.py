@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, Response, jsonify
-import mysql.connector
-from mysql.connector import Error as MySQLError
+import pymysql
+from pymysql import Error as MySQLError
+from dbutils.pooled_db import PooledDB
 from datetime import datetime
 import cv2
 import os
@@ -35,7 +36,22 @@ app.secret_key = config.SECRET_KEY  # Secret key dari environment variable
 camera = None
 latest_detection = None
 all_detected_bboxes = []  # Simpan SEMUA bounding boxes untuk ditampilkan
+all_vehicle_bboxes = []  # ★ NEW: Simpan bounding boxes MOBIL (kotak besar)
 detection_lock = threading.Lock()
+bboxes_lock = threading.Lock()  # ★ BUG FIX #1: Thread-safe protection untuk all_detected_bboxes
+
+# ★ REAL-TIME NOTIFICATION SYSTEM
+# Penjelasan SMK: Simpan notifikasi terbaru untuk ditampilkan di beranda
+latest_notification = {
+    'status': None,  # 'authorized' atau 'denied'
+    'plate_text': None,
+    'owner_name': None,
+    'vehicle_type': None,
+    'timestamp': None,
+    'message': None
+}
+notification_lock = threading.Lock()
+
 system_status = {
     'camera_connected': False,
     'detection_active': False,
@@ -43,18 +59,40 @@ system_status = {
     'last_detection_time': None
 }
 
-# Initialize plate detector (YOLO atau Contour-based dengan fallback)
-# Penjelasan SMK: Bikin "mesin pencari plat" yang siap dipakai
-# Prioritas: YOLO (lebih akurat) → Contour (fallback)
+# ★ BOUNDING BOX STABILIZATION SYSTEM
+# Penjelasan SMK: Sistem untuk bikin kotak stabil, tidak kedip-kedip
+# Tracking history untuk smooth bounding boxes
+from collections import deque
+vehicle_tracking_history = deque(maxlen=5)  # Simpan 5 frame terakhir untuk smoothing
+plate_tracking_history = deque(maxlen=3)    # Plate tracking lebih cepat respond
+
+# ★ 2-MODEL DUAL DETECTION SYSTEM
+# Penjelasan SMK: Gunakan 2 model untuk deteksi lengkap
+# Model 1: YOLOv8n → Detect MOBIL (kotak hijau besar)
+# Model 2: best.pt custom → Detect PLAT (kotak hijau kecil)
+
+# Initialize VEHICLE detector (YOLOv8n - general object detection)
+vehicle_detector = None
+if USE_YOLO:
+    try:
+        from ultralytics import YOLO
+        vehicle_detector = YOLO('yolov8n.pt')  # General model untuk detect mobil
+        logger.info("✅ Vehicle Detector (YOLOv8n) initialized - for VEHICLE detection")
+    except Exception as e:
+        logger.warning(f"⚠️  Vehicle detector init failed: {e}")
+        vehicle_detector = None
+
+# Initialize LICENSE PLATE detector (best.pt - custom trained model)
+plate_detector = None
 if USE_YOLO:
     try:
         plate_detector = YOLOPlateDetector(
             model_path='models/best.pt',
-            conf_threshold=0.25
+            conf_threshold=0.15  # OPTIMIZED: Turun ke 0.15 untuk lebih sensitif
         )
-        logger.info("✅ YOLO Plate Detector initialized successfully")
+        logger.info("✅ Plate Detector (best.pt) initialized - for PLATE detection")
     except Exception as e:
-        logger.error(f"❌ YOLO initialization failed: {e}")
+        logger.error(f"❌ YOLO plate detector initialization failed: {e}")
         logger.info("ℹ️  Falling back to Contour-based detector...")
         from utils.plate_detector import PlateDetector
         plate_detector = PlateDetector(method='contour', max_detections=3)
@@ -68,26 +106,67 @@ else:
 # Penjelasan SMK: Bikin "mesin baca huruf" untuk baca teks plat
 ocr_processor = OCRProcessor()
 
-# Fungsi koneksi DB - MySQL (Laragon)
+# ★ DATABASE CONNECTION - SIMPLIFIED FOR "TOO MANY CONNECTIONS" FIX
+# Penjelasan SMK: Pakai direct connection (bukan pool) untuk avoid MySQL limit
+# Strategy: Buka-tutup connection setiap kali pakai (lebih lambat tapi aman)
+
 def get_db_connection():
     """
-    Penjelasan SMK: Seperti 'buka pintu' untuk bicara dengan database
-    MySQL = database server (Laragon), perlu server yang running!
+    Get direct MySQL connection with retry mechanism
+
+    Penjelasan SMK: Buka koneksi baru setiap kali, lalu TUTUP setelah pakai
+    Ini lebih lambat tapi tidak akan kena "Too many connections"
+
+    IMPORTANT: Setelah pakai connection, HARUS tutup dengan conn.close()!
     """
-    try:
-        conn = mysql.connector.connect(
-            host=config.DB_HOST,
-            port=config.DB_PORT,
-            user=config.DB_USER,
-            password=config.DB_PASSWORD,
-            database=config.DB_NAME,
-            autocommit=False  # Manual commit untuk transaction control
-        )
-        return conn
-    except MySQLError as e:
-        logger.error(f"❌ MySQL connection error: {e}")
-        logger.error(f"   Check: Laragon running? Database '{config.DB_NAME}' exists?")
-        return None
+    max_retries = 3
+    retry_delay = 2  # seconds
+
+    for attempt in range(max_retries):
+        try:
+            conn = pymysql.connect(
+                host=config.DB_HOST,
+                port=config.DB_PORT,
+                user=config.DB_USER,
+                password=config.DB_PASSWORD,
+                database=config.DB_NAME,
+                charset='utf8mb4',
+                cursorclass=pymysql.cursors.DictCursor,
+                autocommit=False,
+                connect_timeout=10,  # Timeout after 10 seconds
+                read_timeout=30,     # Read timeout 30 seconds
+                write_timeout=30     # Write timeout 30 seconds
+            )
+
+            if attempt > 0:
+                logger.info(f"✅ Database connected (after {attempt + 1} attempts)")
+
+            return conn
+
+        except pymysql.err.OperationalError as e:
+            error_code = e.args[0] if e.args else 0
+
+            if error_code == 1040:  # Too many connections
+                logger.warning(f"⚠️  Attempt {attempt + 1}/{max_retries}: Too many connections, retrying in {retry_delay}s...")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    logger.error("❌ Failed to connect after all retries: Too many connections")
+                    logger.error("   💡 SOLUSI: Restart MySQL dengan 'brew services restart mysql'")
+                    return None
+            else:
+                logger.error(f"❌ MySQL connection error: {e}")
+                return None
+
+        except Exception as e:
+            logger.error(f"❌ Unexpected database error: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            else:
+                return None
+
+    return None
 
 # =====================================================
 # CAMERA & DETECTION FUNCTIONS
@@ -211,24 +290,283 @@ def generate_video_frames():
 
         time.sleep(0.1)  # Small delay untuk CPU
 
+def calculate_iou(box1, box2):
+    """
+    Calculate Intersection over Union (IOU) antara 2 bounding boxes
+
+    Penjelasan SMK: Ngukur seberapa "overlap" 2 kotak
+    IOU = 1.0 → kotak sama persis
+    IOU = 0.0 → tidak overlap sama sekali
+
+    Args:
+        box1, box2: (x, y, w, h) format
+    Returns:
+        IOU score (0.0 - 1.0)
+    """
+    x1, y1, w1, h1 = box1[:4]  # Support both (x,y,w,h) and (x,y,w,h,class,conf)
+    x2, y2, w2, h2 = box2[:4]
+
+    # Calculate intersection
+    x_left = max(x1, x2)
+    y_top = max(y1, y2)
+    x_right = min(x1 + w1, x2 + w2)
+    y_bottom = min(y1 + h1, y2 + h2)
+
+    if x_right < x_left or y_bottom < y_top:
+        return 0.0
+
+    intersection = (x_right - x_left) * (y_bottom - y_top)
+    area1 = w1 * h1
+    area2 = w2 * h2
+    union = area1 + area2 - intersection
+
+    return intersection / union if union > 0 else 0.0
+
+def smooth_bounding_boxes(current_detections, history, iou_threshold=0.5):
+    """
+    Smooth bounding boxes using temporal filtering
+
+    Penjelasan SMK: Bikin kotak stabil dengan rata-rata beberapa frame terakhir
+
+    Args:
+        current_detections: List of current frame detections
+        history: deque of previous frames' detections
+        iou_threshold: Minimum IOU untuk consider sebagai "same object"
+
+    Returns:
+        Smoothed bounding boxes
+    """
+    if not current_detections:
+        return []
+
+    # Add current to history
+    history.append(current_detections)
+
+    # Need at least 2 frames untuk smoothing
+    if len(history) < 2:
+        return current_detections
+
+    smoothed = []
+
+    for curr_det in current_detections:
+        # Find matching detections in history (same object across frames)
+        matching_history = []
+
+        for hist_frame in list(history)[:-1]:  # Exclude current frame
+            for hist_det in hist_frame:
+                iou = calculate_iou(curr_det, hist_det)
+                if iou > iou_threshold:
+                    matching_history.append(hist_det)
+                    break  # Only one match per frame
+
+        # If found matches in history, average the positions with WEIGHTED AVERAGE
+        if matching_history:
+            all_boxes = matching_history + [curr_det]
+
+            # ★ IMPROVED: Exponential Weighted Average
+            # Frame terbaru dapat bobot lebih besar (0.7)
+            # Frame lama dapat bobot lebih kecil (0.3 dibagi merata)
+            # Ini bikin tracking lebih responsive tapi tetap smooth
+            n_history = len(matching_history)
+
+            # Weight untuk frame current (70% importance)
+            current_weight = 0.7
+            # Sisa weight (30%) dibagi ke semua history frames
+            history_weight = 0.3 / n_history if n_history > 0 else 0
+
+            # Weighted average x, y, w, h
+            avg_x = int(curr_det[0] * current_weight + sum(b[0] * history_weight for b in matching_history))
+            avg_y = int(curr_det[1] * current_weight + sum(b[1] * history_weight for b in matching_history))
+            avg_w = int(curr_det[2] * current_weight + sum(b[2] * history_weight for b in matching_history))
+            avg_h = int(curr_det[3] * current_weight + sum(b[3] * history_weight for b in matching_history))
+
+            # Keep class and confidence from current detection if present
+            if len(curr_det) > 4:
+                smoothed.append((avg_x, avg_y, avg_w, avg_h, curr_det[4], curr_det[5]))
+            else:
+                smoothed.append((avg_x, avg_y, avg_w, avg_h))
+        else:
+            # New detection, use as is
+            smoothed.append(curr_det)
+
+    return smoothed
+
+def multi_scale_detection(frame):
+    """
+    LEVEL 3 OPTIMIZATION: Multi-scale detection untuk plat jarak berbeda
+
+    Penjelasan SMK: Seperti "zoom in zoom out" untuk cari plat.
+    Try deteksi di 3 resolusi berbeda:
+    - 100% (full res) → untuk plat dekat/besar
+    - 70% (scaled down) → untuk medium range
+    - 50% (scaled down) → untuk plat jauh
+
+    Returns:
+        Best bbox (x,y,w,h) atau None
+    """
+    global all_detected_bboxes
+    all_detections = []
+
+    scales = [
+        (1.0, "Full Resolution"),
+        (0.7, "70% Scale"),
+        (0.5, "50% Scale")
+    ]
+
+    for scale, label in scales:
+        try:
+            if scale < 1.0:
+                # Resize frame untuk scale ini
+                h, w = frame.shape[:2]
+                new_w = int(w * scale)
+                new_h = int(h * scale)
+                scaled_frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            else:
+                scaled_frame = frame
+
+            # Deteksi di scale ini
+            if USE_YOLO:
+                bboxes = plate_detector.detect(scaled_frame)
+            else:
+                bboxes = plate_detector.detect_plate_region(scaled_frame)
+
+            if bboxes:
+                for bbox in bboxes:
+                    x, y, w, h = bbox
+
+                    # Scale back coordinates ke original size ★ BUG FIX!
+                    # Kalau detect di 50% (scale=0.5), coordinate harus dikali 2!
+                    if scale < 1.0:
+                        scale_factor = 1.0 / scale  # 0.5 → 2.0x, 0.7 → 1.43x
+                        x = int(x * scale_factor)
+                        y = int(y * scale_factor)
+                        w = int(w * scale_factor)
+                        h = int(h * scale_factor)
+
+                    # ★ BUG FIX #2: Validate scaled coordinates masih dalam bounds
+                    frame_h, frame_w = frame.shape[:2]
+                    if x < 0 or y < 0 or x + w > frame_w or y + h > frame_h:
+                        logger.debug(f"Skipping OOB bbox at {label}: ({x},{y},{w},{h}) for frame {frame_w}x{frame_h}")
+                        continue
+
+                    # ★ BUG FIX #3: Validate dimensions tidak negative atau zero
+                    if w <= 0 or h <= 0:
+                        logger.debug(f"Skipping invalid dimensions at {label}: {w}x{h}")
+                        continue
+
+                    area = w * h
+                    all_detections.append({
+                        'bbox': (x, y, w, h),
+                        'area': area,
+                        'scale': scale,
+                        'label': label
+                    })
+
+                    logger.debug(f"Detection at {label}: bbox=({x},{y},{w},{h}), area={area}")
+
+        except Exception as e:
+            logger.debug(f"Error at scale {scale}: {e}")
+            continue
+
+    # Return ALL detections (bukan cuma best!) ★ BUG FIX!
+    if all_detections:
+        # Sort by area (largest first)
+        all_detections.sort(key=lambda d: d['area'], reverse=True)
+
+        # Return SEMUA deteksi (maksimal 5 untuk performa)
+        top_detections = all_detections[:5]
+        bboxes = [d['bbox'] for d in top_detections]
+
+        logger.info(f"✅ Multi-scale: {len(bboxes)} plate(s) detected across scales")
+        for i, d in enumerate(top_detections):
+            logger.debug(f"  Plate #{i+1}: {d['label']}, area={d['area']}, bbox={d['bbox']}")
+
+        return bboxes  # ★ Return SEMUA bboxes!
+
+    return []  # Return empty list kalau tidak ada
+
 def real_plate_detection(frame):
     """
     Penjelasan SMK: Deteksi plat ASLI + BACA TEKS dengan OCR
-    Mendukung YOLO dan Contour-based detection
+
+    ★ 2-STAGE DETECTION (seperti image9.png):
+    Stage 1: Detect MOBIL (kotak hijau besar)
+    Stage 2: Detect PLAT dalam area mobil (kotak hijau kecil)
+
+    Analogi: Security guard lihat mobil dulu, baru zoom ke platnya!
     """
-    global all_detected_bboxes
+    global all_detected_bboxes, all_vehicle_bboxes
 
     try:
-        # Step 1: Deteksi SEMUA area plat
-        if USE_YOLO:
-            # YOLO detection - returns list of (x,y,w,h) tuples
-            bboxes = plate_detector.detect(frame)
-        else:
-            # Contour-based detection
-            bboxes = plate_detector.detect_plate_region(frame)
+        # ★ STAGE 1: Detect MOBIL dengan YOLOv8n (kotak BESAR)
+        # Penjelasan: YOLOv8n detect mobil/kendaraan/motor dengan kotak besar
+        # Hasilnya: Kotak hijau besar kayak di image9.png
+        vehicle_bboxes = []
 
-        # Simpan ke global variable untuk ditampilkan
-        all_detected_bboxes = bboxes if bboxes else []
+        if USE_YOLO and vehicle_detector is not None:
+            # YOLOv8n detect mobil (classes: car, motorcycle, bus, truck, etc.)
+            # Classes yang diambil: 2=car, 3=motorcycle, 5=bus, 7=truck
+            vehicle_results = vehicle_detector(frame, conf=0.3, verbose=False, device='cpu')
+
+            for result in vehicle_results:
+                if result.boxes is not None and len(result.boxes) > 0:
+                    for box in result.boxes:
+                        # Get class ID and confidence
+                        cls = int(box.cls[0].cpu().numpy())
+                        conf = float(box.conf[0].cpu().numpy())
+
+                        # Filter hanya kendaraan (car=2, motorcycle=3, bus=5, truck=7)
+                        if cls in [2, 3, 5, 7]:
+                            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                            x = int(x1)
+                            y = int(y1)
+                            w = int(x2 - x1)
+                            h = int(y2 - y1)
+
+                            # Validasi ukuran minimum untuk vehicle
+                            if w > 100 and h > 100:
+                                # ★ SAVE WITH CLASS ID untuk vehicle type identification
+                                # Format: (x, y, w, h, class_id, confidence)
+                                vehicle_bboxes.append((x, y, w, h, cls, conf))
+                                logger.debug(f"🚗 Vehicle detected: class={cls}, conf={conf:.2f}, size={w}x{h} at ({x},{y})")
+
+        # ★ APPLY SMOOTHING untuk stabilisasi bounding boxes
+        # Penjelasan: Kotak tidak kedip-kedip, smooth antar frame
+        # IOU threshold 0.3 = lebih toleran untuk object yang bergerak/berubah ukuran dikit
+        smoothed_vehicles = smooth_bounding_boxes(vehicle_bboxes, vehicle_tracking_history, iou_threshold=0.3)
+
+        # Simpan vehicle bboxes untuk drawing nanti
+        with bboxes_lock:
+            all_vehicle_bboxes = smoothed_vehicles
+
+        logger.info(f"✅ Stage 1: {len(smoothed_vehicles)} vehicle(s) detected (smoothed from {len(vehicle_bboxes)} raw)")
+
+        # ★ STAGE 2: Detect PLAT dalam area mobil (kotak KECIL)
+        # Penjelasan: Dalam setiap mobil yang terdetect, cari platnya
+        # Hasilnya: Kotak hijau kecil di area plat
+        bboxes = multi_scale_detection(frame)
+
+        # Fallback ke single-scale jika multi-scale gagal
+        if not bboxes or len(bboxes) == 0:
+            logger.debug("Multi-scale failed, trying single-scale...")
+            if USE_YOLO:
+                # YOLO detection - returns list of (x,y,w,h) tuples
+                bboxes = plate_detector.detect(frame)
+            else:
+                # Contour-based detection
+                bboxes = plate_detector.detect_plate_region(frame)
+
+        # ★ APPLY SMOOTHING untuk plate detections juga
+        # Penjelasan: Kotak plat juga stabil, tidak jitter
+        # IOU threshold 0.25 = sangat toleran karena plat lebih kecil dan sensitif
+        if bboxes:
+            smoothed_plates = smooth_bounding_boxes(bboxes, plate_tracking_history, iou_threshold=0.25)
+        else:
+            smoothed_plates = []
+
+        # ★ BUG FIX #1: Thread-safe update ke global variable
+        with bboxes_lock:
+            all_detected_bboxes = smoothed_plates if smoothed_plates else []
 
         if bboxes and len(bboxes) > 0:
             # Ambil plat TERBAIK (yang pertama, sudah sorted by confidence)
@@ -236,15 +574,42 @@ def real_plate_detection(frame):
             best_bbox = bboxes[0]
             x, y, w, h = best_bbox
 
-            # Validasi tambahan: skip plat yang terlalu kecil (mungkin noise)
-            MIN_AREA_FOR_OCR = 1400  # 70px x 20px minimum (1400 pixels)
-            plate_area = w * h
+            # ★ BUG FIX #5: Improve OCR area threshold dan validation
+            # Plat Indonesia standar minimal ~200x60 pixels untuk OCR yang reliable
+            # Threshold sebelumnya (600px) terlalu kecil → banyak false positive
+            MIN_AREA_FOR_OCR = 1200  # ~60px x 20px minimum - IMPROVED for better OCR
+            MIN_WIDTH = 50  # Minimum width untuk plat yang valid
+            MIN_HEIGHT = 15  # Minimum height untuk plat yang valid
+            MIN_ASPECT_RATIO = 1.8  # Plat Indonesia biasanya ~3:1 aspect ratio (lowered from 2.0 to allow 1.94)
+            MAX_ASPECT_RATIO = 6.0  # Maximum untuk filter noise
 
+            plate_area = w * h
+            aspect_ratio = w / h if h > 0 else 0
+
+            # Validate area
             if plate_area < MIN_AREA_FOR_OCR:
-                logger.warning(f"⚠️ Plate too small for OCR: {w}x{h} ({plate_area} pixels)")
+                logger.warning(f"⚠️ Plate too small for OCR: {w}x{h} ({plate_area} pixels, min={MIN_AREA_FOR_OCR})")
+                return None
+
+            # Validate dimensions
+            if w < MIN_WIDTH or h < MIN_HEIGHT:
+                logger.warning(f"⚠️ Plate dimensions too small: {w}x{h} (min={MIN_WIDTH}x{MIN_HEIGHT})")
+                return None
+
+            # Validate aspect ratio
+            if aspect_ratio < MIN_ASPECT_RATIO or aspect_ratio > MAX_ASPECT_RATIO:
+                logger.warning(f"⚠️ Invalid aspect ratio: {aspect_ratio:.2f} (expected {MIN_ASPECT_RATIO}-{MAX_ASPECT_RATIO})")
                 return None
 
             # Step 2: Crop area plat
+            # ★ BUG FIX: Add bounds checking untuk prevent out-of-bounds error
+            frame_h, frame_w = frame.shape[:2]
+
+            # Validate coordinates
+            if x < 0 or y < 0 or x + w > frame_w or y + h > frame_h:
+                logger.warning(f"⚠️ Invalid bbox coordinates: ({x},{y},{w},{h}) for frame {frame_w}x{frame_h}")
+                return None
+
             roi = frame[y:y+h, x:x+w]
 
             # Save cropped plate
@@ -258,72 +623,109 @@ def real_plate_detection(frame):
 
             logger.info(f"🚗 Vehicle detected: {vehicle_type}, Color: {vehicle_color}, Size: {w}x{h}")
 
-            # Save original crop
+            # Save original FULL crop (dengan BARIS UTAMA + BARIS TAHUN PAJAK)
             debug_path = f"gambarplat/crop_{timestamp}.jpg"
             cv2.imwrite(debug_path, roi)
-            logger.info(f"💾 Cropped plate saved: {debug_path} (size: {w}x{h})")
+            logger.info(f"💾 Full plate saved: {debug_path} (size: {w}x{h})")
 
-            # Step 4: OCR - BACA TEKS dari plat!
-            plate_text, ocr_confidence = ocr_processor.read_plate_with_confidence(roi)
+            # ★ IMPROVEMENT: Crop 60% bagian atas untuk OCR
+            # Alasan: Fokus ke BARIS UTAMA (nomor plat), buang BARIS TAHUN PAJAK
+            # Layout plat Indonesia:
+            #   - Baris 1 (atas 60%): B 1234 ABC ← yang penting untuk OCR
+            #   - Baris 2 (bawah 40%): 08-27 ← tahun pajak (noise untuk OCR)
+            CROP_RATIO = 0.60  # 60% bagian atas dengan safety margin
+            h_upper = int(h * CROP_RATIO)
+            roi_upper_only = roi[0:h_upper, :]  # Crop dari top ke 60%
+
+            logger.debug(f"🔍 OCR input: upper 60% only ({roi_upper_only.shape[1]}x{roi_upper_only.shape[0]} from {w}x{h})")
+
+            # Step 4: OCR - BACA TEKS dari plat (HANYA dari baris atas!)
+            plate_text, ocr_confidence = ocr_processor.read_plate_with_confidence(roi_upper_only)
 
             # Log hasil OCR
             if plate_text:
-                logger.info(f"✅ OCR SUCCESS: {plate_text} (confidence: {ocr_confidence:.2f})")
+                # ★ BUG FIX #6: Validate plate text sebelum return
+                # Pastikan hasil OCR adalah plat yang valid (bukan garbage)
+                if ocr_processor.is_valid_plate(plate_text):
+                    logger.info(f"✅ OCR SUCCESS: {plate_text} (confidence: {ocr_confidence:.2f})")
 
-                # Save SUCCESS result dengan annotasi + metadata
-                try:
-                    annotated = roi.copy()
-                    # Tambah text hasil OCR di gambar
-                    cv2.putText(annotated, plate_text, (5, 20),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    # Save SUCCESS result dengan annotasi + metadata
+                    # ★ IMPORTANT: Simpan FULL PLAT (roi), bukan roi_upper_only!
+                    # Untuk dokumentasi lengkap dengan BARIS UTAMA + BARIS TAHUN PAJAK
+                    try:
+                        annotated = roi.copy()  # ← FULL PLAT (2 baris)
+                        # Tambah text hasil OCR di gambar
+                        cv2.putText(annotated, plate_text, (5, 20),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-                    # Filename dengan metadata: SUCCESS_PLAT_TYPE_COLOR_TIMESTAMP.jpg
-                    success_path = f"gambarplat/SUCCESS_{plate_text}_{vehicle_type}_{vehicle_color}_{timestamp}.jpg"
-                    cv2.imwrite(success_path, annotated)
-                    logger.info(f"💾 Success saved: {success_path}")
-                except Exception as e:
-                    logger.error(f"Error saving success image: {e}")
+                        # Filename dengan metadata: SUCCESS_PLAT_TYPE_COLOR_TIMESTAMP.jpg
+                        success_path = f"gambarplat/SUCCESS_{plate_text}_{vehicle_type}_{vehicle_color}_{timestamp}.jpg"
+                        cv2.imwrite(success_path, annotated)  # ← FULL PLAT disimpan
+                        logger.info(f"💾 Success saved with full plate: {success_path}")
+                    except Exception as e:
+                        logger.error(f"Error saving success image: {e}")
 
-                return {
-                    'text': plate_text,
-                    'confidence': ocr_confidence,
-                    'bbox': [x, y, w, h]
-                }
-            else:
-                logger.warning(f"❌ OCR FAILED - Size: {w}x{h}, Confidence: {ocr_confidence:.2f}")
+                    return {
+                        'text': plate_text,
+                        'confidence': ocr_confidence,
+                        'bbox': [x, y, w, h]
+                    }
+                else:
+                    logger.warning(f"⚠️ OCR returned invalid plate format: {plate_text}")
+                    # Continue to fallback
 
-                # Coba OCR simple tanpa validasi ketat
-                try:
-                    simple_text = ocr_processor.read_plate_text(roi)
-                    if simple_text:
-                        logger.info(f"⚠️ Simple OCR: {simple_text}")
+            # ★ BUG FIX #6: Improved fallback logic
+            # Jika OCR utama gagal atau return invalid format, coba fallback
+            logger.warning(f"❌ Primary OCR FAILED - Size: {w}x{h}, Confidence: {ocr_confidence:.2f}")
+
+            # Fallback: Try simple OCR tanpa strict validation
+            # ★ CONSISTENCY: Gunakan roi_upper_only (bukan roi) untuk fallback juga
+            try:
+                simple_text = ocr_processor.read_plate_text(roi_upper_only)
+
+                if simple_text and len(simple_text) >= 3:
+                    # Get real format confidence instead of hardcoded 0.5
+                    _, format_confidence = ocr_processor.format_indonesian_plate(simple_text)
+
+                    logger.info(f"⚠️ Fallback OCR: {simple_text} (format_conf: {format_confidence:.2f})")
+
+                    # Only return if format confidence is reasonable
+                    if format_confidence >= 0.3:
                         return {
                             'text': simple_text,
-                            'confidence': 0.5,
+                            'confidence': format_confidence,
                             'bbox': [x, y, w, h]
                         }
-                except:
-                    pass
+                    else:
+                        logger.warning(f"⚠️ Fallback text has low format confidence: {format_confidence:.2f}")
 
-                return {
-                    'text': 'UNKNOWN',
-                    'confidence': 0.3,
-                    'bbox': [x, y, w, h]
-                }
+            except Exception as e:
+                logger.warning(f"Simple OCR fallback error: {e}")
+
+            # ★ BUG FIX: Return None to prevent database spam with garbage
+            logger.warning(f"❌ Complete OCR failure - returning None to skip logging")
+            return None
         else:
             return None
 
     except Exception as e:
         logger.error(f"❌ Error in real plate detection: {e}")
-        all_detected_bboxes = []
+        # ★ BUG FIX #1: Thread-safe clear bboxes on error
+        with bboxes_lock:
+            all_detected_bboxes = []
         return None
 
 def draw_detection_info(frame):
     """
     Penjelasan SMK: Gambar info di video seperti subtitle
-    Tampilkan SEMUA plat yang terdeteksi dengan kotak warna berbeda
+
+    ★ 2-STAGE DRAWING (seperti image9.png):
+    1. Gambar kotak BIRU untuk MOBIL (kotak besar)
+    2. Gambar kotak HIJAU untuk PLAT (kotak kecil)
+
+    Analogi: Seperti gambar border di foto - mobil = frame luar, plat = frame dalam
     """
-    global latest_detection, system_status, all_detected_bboxes
+    global latest_detection, system_status, all_detected_bboxes, all_vehicle_bboxes
 
     # Status kamera
     status_color = (0, 255, 0) if system_status['camera_connected'] else (0, 0, 255)
@@ -340,30 +742,85 @@ def draw_detection_info(frame):
         detection_text = f"PROCESSING: {latest_detection['plate_text']} ({latest_detection['confidence']:.0%})"
         cv2.putText(frame, detection_text, (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
 
-    # Draw SEMUA bounding boxes yang terdeteksi
-    # Penjelasan SMK: Pakai fungsi draw_detections dari PlateDetector
-    # Otomatis gambar semua kotak dengan warna berbeda!
-    if all_detected_bboxes:
-        if USE_YOLO:
-            # YOLO drawer - simple green boxes
-            plate_detector.draw(frame, all_detected_bboxes, "PLAT")
-        else:
-            # Contour-based drawer - multi-color boxes
-            plate_detector.draw_detections(frame, all_detected_bboxes)
+    # ★ DRAW 2-STAGE BOUNDING BOXES (seperti image9.png)
+    # Penjelasan: Gambar 2 jenis kotak - MOBIL (biru) dan PLAT (hijau)
+    # ★ BUG FIX #8: Thread-safe access + error handling untuk drawing
+    try:
+        with bboxes_lock:
+            frame_h, frame_w = frame.shape[:2]
+
+            # ★ STEP 1: Draw VEHICLE bboxes (kotak BIRU besar untuk mobil)
+            if all_vehicle_bboxes:
+                BLUE = (255, 0, 0)  # BGR format - Blue untuk mobil
+
+                # ★ VEHICLE TYPE MAPPING
+                # Penjelasan: Terjemahan class ID ke bahasa Indonesia
+                vehicle_types = {
+                    2: "MOBIL",      # car
+                    3: "MOTOR",      # motorcycle
+                    5: "BUS",        # bus
+                    7: "TRUK"        # truck
+                }
+
+                for i, bbox in enumerate(all_vehicle_bboxes):
+                    # Extract x, y, w, h, dan class_id jika ada
+                    if len(bbox) >= 6:
+                        x, y, w, h, cls, conf = bbox
+                        vehicle_label = vehicle_types.get(cls, "KENDARAAN")
+                    elif len(bbox) >= 4:
+                        x, y, w, h = bbox[:4]
+                        vehicle_label = "KENDARAAN"
+                    else:
+                        continue
+
+                    # Validate bbox
+                    if x >= 0 and y >= 0 and x + w <= frame_w and y + h <= frame_h and w > 0 and h > 0:
+                        # Draw rectangle BIRU (thick untuk mobil)
+                        cv2.rectangle(frame, (x, y), (x+w, y+h), BLUE, 3)
+
+                        # ★ Label dengan JENIS KENDARAAN (MOBIL / MOTOR / BUS / TRUK)
+                        cv2.putText(frame, vehicle_label, (x, y-10),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.9, BLUE, 2)
+                        logger.debug(f"🚗 Drew {vehicle_label} bbox: ({x},{y},{w},{h})")
+
+            # ★ STEP 2: Draw PLATE bboxes (kotak HIJAU kecil untuk plat)
+            if all_detected_bboxes:
+                GREEN = (0, 255, 0)  # BGR format - Green untuk plat
+                valid_plate_bboxes = []
+
+                for bbox in all_detected_bboxes:
+                    x, y, w, h = bbox
+                    # Validate bbox masih dalam frame bounds
+                    if x >= 0 and y >= 0 and x + w <= frame_w and y + h <= frame_h and w > 0 and h > 0:
+                        valid_plate_bboxes.append(bbox)
+                    else:
+                        logger.debug(f"Skipping invalid plate bbox: ({x},{y},{w},{h})")
+
+                # Draw plate bboxes dengan warna HIJAU
+                if valid_plate_bboxes:
+                    if USE_YOLO:
+                        # YOLO drawer - green boxes untuk plat
+                        plate_detector.draw(frame, valid_plate_bboxes, "PLAT")
+                    else:
+                        # Contour-based drawer - multi-color boxes
+                        plate_detector.draw_detections(frame, valid_plate_bboxes)
+
+    except Exception as e:
+        logger.error(f"Error drawing bboxes: {e}")
 
 def process_vehicle_access(plate_text, confidence):
     """
     Penjelasan SMK: Seperti 'security guard digital'
     Cek database: boleh masuk atau tidak?
     """
-    global system_status
+    global system_status, latest_notification
 
     try:
         conn = get_db_connection()
         if not conn:
             return 'error', "Database connection failed"
 
-        cursor = conn.cursor(dictionary=True)  # MySQL: dictionary=True
+        cursor = conn.cursor()  # DictCursor already set in pool
 
         # Cek apakah kendaraan terdaftar
         query = "SELECT * FROM kendaraan_terdaftar WHERE nomor_plat = %s AND status = 'aktif'"  # MySQL: %s instead of ?
@@ -378,6 +835,17 @@ def process_vehicle_access(plate_text, confidence):
 
             message = f"🟢 AUTHORIZED - Welcome {vehicle['nama_pemilik']}!"
             logger.info(f"✅ ACCESS GRANTED: {plate_text} - {vehicle['nama_pemilik']}")
+
+            # ★ UPDATE NOTIFICATION untuk real-time display di beranda
+            with notification_lock:
+                latest_notification = {
+                    'status': 'authorized',
+                    'plate_text': plate_text,
+                    'owner_name': vehicle['nama_pemilik'],
+                    'vehicle_type': vehicle['jenis_kendaraan'],
+                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'message': f"Welcome {vehicle['nama_pemilik']}!"
+                }
 
             # Simulasi gate buka (print ke console)
             print("\n" + "=" * 50)
@@ -403,6 +871,17 @@ def process_vehicle_access(plate_text, confidence):
 
             message = f"🔴 ACCESS DENIED - Plate {plate_text} not registered!"
             logger.warning(f"❌ ACCESS DENIED: {plate_text}")
+
+            # ★ UPDATE NOTIFICATION untuk real-time display di beranda
+            with notification_lock:
+                latest_notification = {
+                    'status': 'denied',
+                    'plate_text': plate_text,
+                    'owner_name': 'Unknown',
+                    'vehicle_type': 'Unknown',
+                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'message': 'Kendaraan tidak terdaftar!'
+                }
 
             print("\n" + "=" * 50)
             print("🔴 AKSES DITOLAK")
@@ -696,7 +1175,7 @@ def api_detected_plates():
                     try:
                         conn = get_db_connection()
                         if conn:
-                            cursor = conn.cursor(dictionary=True)  # MySQL: dictionary=True
+                            cursor = conn.cursor()  # DictCursor already set in pool
                             cursor.execute("SELECT jenis_kendaraan FROM kendaraan_terdaftar WHERE nomor_plat = %s", (plate_text.replace(' ', ''),))  # MySQL: %s, remove spaces
                             vehicle = cursor.fetchone()
                             conn.close()
@@ -713,7 +1192,7 @@ def api_detected_plates():
             try:
                 conn = get_db_connection()
                 if conn:
-                    cursor = conn.cursor(dictionary=True)  # MySQL: dictionary=True
+                    cursor = conn.cursor()  # DictCursor already set in pool
                     cursor.execute("SELECT nama_pemilik FROM kendaraan_terdaftar WHERE nomor_plat = %s", (plate_text.replace(' ', ''),))  # MySQL: %s, remove spaces
                     vehicle = cursor.fetchone()
                     conn.close()
@@ -752,6 +1231,40 @@ def api_detected_plates():
             'plates': []
         })
 
+@app.route('/api/latest_notification')
+def api_latest_notification():
+    """
+    API untuk get notifikasi akses terbaru (Authorized/Denied)
+
+    Penjelasan SMK: Frontend polling endpoint ini setiap 2 detik
+    untuk update notifikasi real-time di beranda
+
+    Returns:
+        JSON dengan status, plat, owner, message, timestamp
+    """
+    try:
+        with notification_lock:
+            notification = latest_notification.copy()
+
+        if notification['status'] is None:
+            # Belum ada detection
+            return jsonify({
+                'status': 'no_data',
+                'message': 'Waiting for vehicle detection...'
+            })
+
+        return jsonify({
+            'status': 'success',
+            'notification': notification
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting latest notification: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
 # =====================================================
 # WEB PAGES ROUTES
 # =====================================================
@@ -767,7 +1280,7 @@ def vehicles():
         if not conn:
             raise Exception("Database connection failed")
 
-        cursor = conn.cursor(dictionary=True)  # MySQL: dictionary=True
+        cursor = conn.cursor()  # DictCursor already set in pool
         cursor.execute("SELECT * FROM kendaraan_terdaftar ORDER BY tanggal_daftar DESC")
         vehicles_list = cursor.fetchall()
         cursor.close()
@@ -790,7 +1303,7 @@ def access_logs():
         if not conn:
             raise Exception("Database connection failed")
 
-        cursor = conn.cursor(dictionary=True)  # MySQL: dictionary=True
+        cursor = conn.cursor()  # DictCursor already set in pool
 
         # Get filter dari URL parameter
         date_filter = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
@@ -1046,7 +1559,7 @@ def delete_vehicle(vehicle_id):
         if not conn:
             raise Exception("Database connection failed")
 
-        cursor = conn.cursor(dictionary=True)  # MySQL: dictionary=True
+        cursor = conn.cursor()  # DictCursor already set in pool
 
         # Get vehicle info dulu untuk log
         cursor.execute("SELECT nomor_plat, nama_pemilik FROM kendaraan_terdaftar WHERE id_kendaraan = %s", (vehicle_id,))  # MySQL: %s

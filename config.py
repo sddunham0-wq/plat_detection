@@ -35,7 +35,7 @@ class Config:
     SAVE_FOLDER = os.getenv('SAVE_FOLDER', 'gambarplat')
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
     MAX_RETRY_CAMERA = int(os.getenv('MAX_RETRY_CAMERA', '5'))
-    FLASK_PORT = int(os.getenv('FLASK_PORT', '5001'))  # Default 5001 (avoid macOS AirPlay port 5000)
+    FLASK_PORT = int(os.getenv('FLASK_PORT', '8080'))  # Default 8080 (port development yang aman)
 
     # Konfigurasi Deteksi
     # Ukuran minimum plat yang akan dideteksi

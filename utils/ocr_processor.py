@@ -12,6 +12,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# ★ EASYOCR INTEGRATION
+try:
+    import easyocr
+    EASYOCR_AVAILABLE = True
+    logger.info("✅ EasyOCR available for fallback")
+except ImportError:
+    EASYOCR_AVAILABLE = False
+    logger.warning("⚠️  EasyOCR not available, using Tesseract only")
+
 class OCRProcessor:
     """OCR Processor dengan multiple fallback strategy"""
 
@@ -27,6 +36,17 @@ class OCRProcessor:
         # Whitelist karakter (huruf + angka + spasi untuk format Indonesia)
         self.char_whitelist = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '
 
+        # ★ Initialize EasyOCR sebagai fallback
+        self.easyocr_reader = None
+        if EASYOCR_AVAILABLE:
+            try:
+                # GPU=False untuk kompatibilitas, lang=['en'] untuk plat Indonesia
+                self.easyocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+                logger.info("✅ EasyOCR reader initialized (English)")
+            except Exception as e:
+                logger.warning(f"⚠️  Failed to initialize EasyOCR: {e}")
+                self.easyocr_reader = None
+
         logger.info("OCR Processor initialized with multiple PSM fallback")
 
     def preprocess_simple(self, img):
@@ -38,16 +58,30 @@ class OCRProcessor:
             else:
                 gray = img
 
-            # Resize KE 400px width (lebih besar = lebih baik)
+            # ★ AGGRESSIVE UPSCALING untuk plat kecil
+            # Penjelasan SMK: Perbesar gambar 6x untuk OCR lebih akurat
+            # Target: 120px → 720px (6x), 150px → 600px (4x)
             h, w = gray.shape
-            if w < 400:
-                scale = 400 / w
+            target_width = 600  # Naik dari 400 ke 600
+            if w < target_width:
+                scale = target_width / w
+                scale = min(scale, 6.0)  # Max 6x scaling (naik dari 4x)
                 new_w = int(w * scale)
                 new_h = int(h * scale)
-                gray = cv2.resize(gray, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+
+                # Gunakan INTER_LANCZOS4 untuk upscaling terbaik
+                gray = cv2.resize(gray, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+
+                logger.debug(f"📏 Upscaled: {w}x{h} → {new_w}x{new_h} ({scale:.1f}x)")
+
+            # ★ SHARPENING untuk detail lebih tajam
+            kernel_sharpen = np.array([[-1, -1, -1],
+                                       [-1,  9, -1],
+                                       [-1, -1, -1]])
+            sharpened = cv2.filter2D(gray, -1, kernel_sharpen)
 
             # Simple threshold (Otsu)
-            _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            _, binary = cv2.threshold(sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
             return binary
 
@@ -64,20 +98,30 @@ class OCRProcessor:
             else:
                 gray = img
 
-            # Resize
+            # ★ AGGRESSIVE UPSCALING (sama seperti simple)
             h, w = gray.shape
-            if w < 400:
-                scale = 400 / w
+            target_width = 600  # Naik dari 400
+            if w < target_width:
+                scale = target_width / w
+                scale = min(scale, 6.0)  # Max 6x scaling
                 new_w = int(w * scale)
                 new_h = int(h * scale)
-                gray = cv2.resize(gray, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+                gray = cv2.resize(gray, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
 
-            # CLAHE untuk kontras
-            clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+                logger.debug(f"📏 Advanced upscaled: {w}x{h} → {new_w}x{new_h} ({scale:.1f}x)")
+
+            # ★ CLAHE LEBIH AGRESIF untuk kontras tinggi
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))  # Naik dari 2.5
             enhanced = clahe.apply(gray)
 
+            # ★ SHARPENING sebelum bilateral
+            kernel_sharpen = np.array([[-1, -1, -1],
+                                       [-1,  9, -1],
+                                       [-1, -1, -1]])
+            sharpened = cv2.filter2D(enhanced, -1, kernel_sharpen)
+
             # Bilateral filter
-            bilateral = cv2.bilateralFilter(enhanced, 9, 75, 75)
+            bilateral = cv2.bilateralFilter(sharpened, 9, 75, 75)
 
             # Threshold
             _, binary = cv2.threshold(bilateral, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
@@ -251,6 +295,21 @@ class OCRProcessor:
     def ocr_single_mode(self, img, psm_config):
         """OCR dengan 1 PSM mode"""
         try:
+            # ★ UPSCALE IMAGE BEFORE OCR (FIX UNTUK CROP KECIL!)
+            # Penjelasan SMK: Zoom gambar supaya lebih besar dan jelas untuk Tesseract
+            # Gambar kecil (120x64) → Zoom 4x → Jadi besar (480x256) → Lebih mudah dibaca!
+            h, w = img.shape[:2]
+            target_height = 256  # Target minimal untuk OCR yang bagus
+            scale_factor = max(4.0, target_height / h)  # Minimum 4x zoom
+
+            if scale_factor > 1.0:
+                # cv2.INTER_CUBIC = Interpolasi berkualitas tinggi (smooth, tidak pixelated)
+                img = cv2.resize(img, None,
+                                fx=scale_factor,
+                                fy=scale_factor,
+                                interpolation=cv2.INTER_CUBIC)
+                logger.debug(f"📐 [Tesseract] Upscaled from {w}x{h} to {img.shape[1]}x{img.shape[0]} ({scale_factor:.1f}x)")
+
             config = f"{psm_config} -c tessedit_char_whitelist={self.char_whitelist}"
 
             raw_text = pytesseract.image_to_string(img, config=config)
@@ -262,25 +321,107 @@ class OCRProcessor:
             logger.debug(f"OCR error: {e}")
             return ""
 
+    def ocr_with_easyocr(self, img):
+        """
+        OCR menggunakan EasyOCR sebagai fallback
+
+        Penjelasan SMK: EasyOCR lebih bagus untuk plat nomor Indonesia
+        karena trained dengan deep learning (lebih pintar)
+
+        Returns:
+            text: Hasil OCR atau None kalau gagal
+        """
+        if not self.easyocr_reader:
+            return None
+
+        try:
+            # EasyOCR butuh BGR image (bukan grayscale/binary)
+            if len(img.shape) == 2:
+                # Convert grayscale to BGR
+                img_bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            else:
+                img_bgr = img
+
+            # ★ UPSCALE IMAGE BEFORE OCR (FIX UNTUK CROP KECIL!)
+            # Penjelasan SMK: Zoom gambar supaya lebih besar dan jelas untuk OCR
+            # Gambar kecil (120x64) → Zoom 4x → Jadi besar (480x256) → Lebih mudah dibaca!
+            h, w = img_bgr.shape[:2]
+            target_height = 256  # Target minimal untuk OCR yang bagus
+            scale_factor = max(4.0, target_height / h)  # Minimum 4x zoom
+
+            if scale_factor > 1.0:
+                # cv2.INTER_CUBIC = Interpolasi berkualitas tinggi (smooth, tidak pixelated)
+                img_bgr = cv2.resize(img_bgr, None,
+                                    fx=scale_factor,
+                                    fy=scale_factor,
+                                    interpolation=cv2.INTER_CUBIC)
+                logger.debug(f"📐 Upscaled from {w}x{h} to {img_bgr.shape[1]}x{img_bgr.shape[0]} ({scale_factor:.1f}x)")
+
+            # Read text dengan EasyOCR
+            results = self.easyocr_reader.readtext(img_bgr, detail=1)
+
+            if not results:
+                return None
+
+            # Ambil text dengan confidence tertinggi
+            best_result = max(results, key=lambda x: x[2])  # x[2] = confidence
+            text = best_result[1]  # x[1] = text
+            confidence = best_result[2]  # x[2] = confidence
+
+            # Clean text
+            cleaned = self.clean_text(text)
+
+            logger.debug(f"EasyOCR: '{cleaned}' (conf: {confidence:.2f})")
+
+            return cleaned if confidence > 0.3 else None
+
+        except Exception as e:
+            logger.debug(f"EasyOCR error: {e}")
+            return None
+
     def read_plate_text(self, plate_img):
         """
-        Baca plat dengan MULTIPLE FALLBACK strategy
+        Baca plat dengan EASYOCR FIRST strategy (REVERSED ORDER)
 
-        Strategy:
-        1. Try advanced preprocessing + PSM 7
-        2. Try simple preprocessing + PSM 7
-        3. Try advanced preprocessing + PSM 8
-        4. Try simple preprocessing + PSM 8
-        5. Try all other PSM modes
-        6. Return best result dengan format Indonesia (F 1234 ABC)
+        NEW Strategy (OPTIMIZED untuk akurasi tinggi):
+        1. ★ TRY EASYOCR FIRST (paling akurat untuk plat Indonesia!)
+        2. Fallback ke Tesseract kalau EasyOCR gagal
+        3. Return best result dengan format Indonesia (B 1234 ABC)
+
+        Kenapa EasyOCR first?
+        - Deep learning based → lebih pintar
+        - Trained untuk Asian text → cocok untuk Indonesia
+        - Lebih akurat untuk plat yang sudah jelas
+
+        Tesseract hanya sebagai fallback untuk edge cases.
         """
         try:
+            # ★ STRATEGY 1: TRY EASYOCR FIRST (HIGHEST ACCURACY!)
+            if self.easyocr_reader:
+                logger.info("🔍 Trying EasyOCR (primary method)...")
+                easyocr_text = self.ocr_with_easyocr(plate_img)
+
+                if easyocr_text:
+                    # Auto-correct dan format
+                    corrected = self.auto_correct_plate(easyocr_text)
+                    formatted, format_conf = self.format_indonesian_plate(corrected)
+
+                    if self.is_valid_plate(formatted):
+                        logger.info(f"✅ EASYOCR SUCCESS: {formatted} (primary)")
+                        return formatted
+                    elif len(formatted.replace(' ', '')) >= 3:
+                        logger.info(f"⚠️ EASYOCR PARTIAL: {formatted} (confidence: {format_conf:.2f})")
+                        # Return EasyOCR result even if not fully valid (biasanya lebih akurat)
+                        return formatted
+
+            # ★ STRATEGY 2: FALLBACK TO TESSERACT (kalau EasyOCR gagal/tidak available)
+            logger.info("🔄 Trying Tesseract fallback...")
             results = []
 
-            # Preprocessing options
+            # Preprocessing options - LIGHT preprocessing untuk gambar yang sudah jelas
             preprocessed_images = [
-                ('Advanced', self.preprocess_advanced(plate_img)),
                 ('Simple', self.preprocess_simple(plate_img)),
+                ('Advanced', self.preprocess_advanced(plate_img)),
             ]
 
             # Try each preprocessing + PSM combination
@@ -299,31 +440,31 @@ class OCRProcessor:
                         results.append({
                             'text': formatted_text,
                             'original': text,
-                            'length': len(formatted_text.replace(' ', '')),  # Length tanpa spasi
+                            'length': len(formatted_text.replace(' ', '')),
                             'valid': self.is_valid_plate(formatted_text),
                             'format_confidence': format_confidence,
-                            'method': f"{prep_name} + {psm_name}"
+                            'method': f"Tesseract {prep_name} + {psm_name}"
                         })
 
             # Sort results: valid first, format confidence, then by length
             results.sort(key=lambda x: (not x['valid'], -x['format_confidence'], -x['length']))
 
             # Log all results
-            logger.debug(f"OCR tried {len(results)} combinations")
+            logger.debug(f"Tesseract tried {len(results)} combinations")
             for i, r in enumerate(results[:3]):
                 logger.debug(f"  [{i+1}] {r['text']} (valid={r['valid']}, conf={r['format_confidence']:.2f}, method={r['method']})")
 
-            # Return best result
+            # Return best Tesseract result
             if results:
                 best = results[0]
                 if best['valid']:
-                    logger.info(f"✅ OCR SUCCESS: {best['text']} (method: {best['method']})")
+                    logger.info(f"✅ TESSERACT SUCCESS: {best['text']} (fallback method)")
                     return best['text']
                 elif best['length'] >= 3:
-                    logger.warning(f"⚠️ OCR PARTIAL: {best['text']} (not fully valid)")
+                    logger.warning(f"⚠️ TESSERACT PARTIAL: {best['text']} (fallback)")
                     return best['text']
 
-            logger.warning(f"❌ OCR FAILED - No readable text")
+            logger.warning(f"❌ ALL OCR FAILED - No readable text")
             return None
 
         except Exception as e:

@@ -1,0 +1,53 @@
+# Environment Variables (contains sensitive data)
+.env
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Temporary Files
+*.tmp
+*.temp
+
+# Camera Screenshots & Detected Plates
+gambarplat/
+static/screenshots/
+access_photos/
+
+# Database (if using SQLite for development)
+*.db
+*.sqlite
+*.sqlite3
+
+# Models (large files)
+models/*.pt
+models/*.weights
+!models/.gitkeep

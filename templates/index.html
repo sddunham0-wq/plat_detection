@@ -177,7 +177,7 @@
                             <i class="fas fa-traffic-light me-2"></i>Status Gate
                         </h5>
                         <div id="gateStatus" class="gate-status gate-closed">
-                            🔴 GATE TERTUTUP - Menunggu kendaraan...
+                            GATE TERTUTUP - Menunggu kendaraan...
                         </div>
                     </div>
                 </div>
@@ -191,8 +191,8 @@
                     <div class="card-header bg-primary text-white">
                         <h5 class="mb-0">
                             <i class="fas fa-video me-2"></i>Live Camera Feed
-                            <span id="cameraStatus" class="badge bg-success ms-2">
-                                <i class="fas fa-circle pulse"></i> LIVE
+                            <span id="cameraStatus" class="badge bg-danger ms-2">
+                                LIVE
                             </span>
                         </h5>
                     </div>
@@ -321,6 +321,22 @@
                         </a>
                     </div>
                 </div>
+
+                <!-- OCR Results Panel - NEW! -->
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h6>
+                            <i class="fas fa-text-width me-2"></i>Hasil OCR Terbaru
+                            <span class="badge bg-info" id="ocrCount">0</span>
+                        </h6>
+                    </div>
+                    <div class="card-body" id="ocrResultsPanel" style="max-height: 350px; overflow-y: auto;">
+                        <div class="text-center text-muted">
+                            <i class="fas fa-hourglass-half fa-2x mb-2"></i>
+                            <p>Menunggu hasil OCR...</p>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -358,11 +374,17 @@
 
         // Global variables
         let detectionUpdateInterval;
+        let notificationUpdateInterval;
         let isSystemActive = true;
+        let lastNotificationTimestamp = null;
+        let ocrResults = [];  // Array untuk simpan hasil OCR (max 5)
+        const MAX_OCR_RESULTS = 5;
 
         // Update detection status setiap 2 detik
         function startDetectionUpdates() {
             detectionUpdateInterval = setInterval(updateDetectionStatus, 2000);
+            notificationUpdateInterval = setInterval(updateNotification, 2000);
+            updateOCRResults(); // Initial load
         }
 
         function updateDetectionStatus() {
@@ -410,18 +432,149 @@
             }
         }
 
+        /**
+         * Update Access Notification
+         * Penjelasan SMK: Function ini polling API setiap 2 detik untuk
+         * cek apakah ada notification baru (Authorized/Denied)
+         */
+        function updateNotification() {
+            if (!isSystemActive) return;
+
+            fetch('/api/latest_notification')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success' && data.notification) {
+                        const notif = data.notification;
+
+                        // Only update jika ada notification baru
+                        if (notif.timestamp !== lastNotificationTimestamp) {
+                            lastNotificationTimestamp = notif.timestamp;
+
+                            // Tambahkan ke OCR results array
+                            addOCRResult(notif);
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching notification:', error);
+                });
+        }
+
+        /**
+         * Add OCR Result to Array
+         * Penjelasan SMK: Function ini tambahkan hasil OCR ke array
+         * dan update tampilan panel OCR
+         */
+        function addOCRResult(notif) {
+            // Tambahkan ke awal array (newest first)
+            ocrResults.unshift({
+                plate_text: notif.plate_text,
+                status: notif.status,
+                owner_name: notif.owner_name || 'Tidak Terdaftar',
+                timestamp: notif.timestamp
+            });
+
+            // Keep only last 5 results
+            if (ocrResults.length > MAX_OCR_RESULTS) {
+                ocrResults = ocrResults.slice(0, MAX_OCR_RESULTS);
+            }
+
+            // Update panel
+            renderOCRResults();
+        }
+
+        /**
+         * Render OCR Results Panel
+         * Penjelasan SMK: Function ini gambar hasil OCR di panel
+         */
+        function renderOCRResults() {
+            const panel = document.getElementById('ocrResultsPanel');
+            const countBadge = document.getElementById('ocrCount');
+
+            // Update count
+            countBadge.textContent = ocrResults.length;
+
+            if (ocrResults.length === 0) {
+                panel.innerHTML = `
+                    <div class="text-center text-muted">
+                        <i class="fas fa-hourglass-half fa-2x mb-2"></i>
+                        <p>Menunggu hasil OCR...</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Render each OCR result
+            let html = '';
+            ocrResults.forEach((result, index) => {
+                const isAuthorized = result.status === 'authorized';
+                const badgeClass = isAuthorized ? 'success' : 'danger';
+                const iconClass = isAuthorized ? 'fa-check-circle' : 'fa-times-circle';
+                const statusText = isAuthorized ? 'AUTHORIZED' : 'DENIED';
+                const bgColor = isAuthorized ? '#d4edda' : '#f8d7da';
+                const borderColor = isAuthorized ? '#c3e6cb' : '#f5c6cb';
+
+                html += `
+                    <div class="mb-2 p-3" style="background: ${bgColor}; border-left: 4px solid ${borderColor}; border-radius: 8px;">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong style="font-size: 1.1em;">${result.plate_text}</strong>
+                                <br>
+                                <small class="text-muted">${result.owner_name}</small>
+                            </div>
+                            <div class="text-end">
+                                <span class="badge bg-${badgeClass}">
+                                    <i class="fas ${iconClass}"></i> ${statusText}
+                                </span>
+                                <br>
+                                <small class="text-muted">${formatTime(result.timestamp)}</small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            panel.innerHTML = html;
+        }
+
+        /**
+         * Update OCR Results (initial load dari database)
+         */
+        function updateOCRResults() {
+            // For now, OCR results will be populated from notifications
+            // as they come in via polling
+            renderOCRResults();
+        }
+
+        /**
+         * Format timestamp to HH:MM:SS
+         */
+        function formatTime(timestamp) {
+            try {
+                // Check if timestamp is already formatted as HH:MM:SS
+                if (timestamp && timestamp.match(/^\d{2}:\d{2}:\d{2}$/)) {
+                    return timestamp;
+                }
+                // Otherwise parse as Date
+                const date = new Date(timestamp);
+                return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            } catch (e) {
+                return timestamp;
+            }
+        }
+
         function updateGateStatus(data) {
             const gateDiv = document.getElementById('gateStatus');
             const gateIndicator = document.getElementById('gateStatusIndicator');
 
             if (data.system_status && data.system_status.gate_status === 'opened') {
                 gateDiv.className = 'gate-status gate-open';
-                gateDiv.innerHTML = '🟢 GATE TERBUKA - Akses diberikan';
+                gateDiv.innerHTML = 'GATE TERBUKA - Akses diberikan';
                 gateIndicator.className = 'badge bg-success p-2';
                 gateIndicator.innerHTML = '<i class="fas fa-door-open"></i> Gate Open';
             } else {
                 gateDiv.className = 'gate-status gate-closed';
-                gateDiv.innerHTML = '🔴 GATE TERTUTUP - Menunggu kendaraan...';
+                gateDiv.innerHTML = '<GATE TERTUTUP - Menunggu kendaraan...';
                 gateIndicator.className = 'badge bg-secondary p-2';
                 gateIndicator.innerHTML = '<i class="fas fa-door-closed"></i> Gate Closed';
             }
