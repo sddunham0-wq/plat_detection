@@ -121,6 +121,34 @@ def toggle_person_detection():
     except Exception as e:
         return jsonify({'error': str(e)})
 
+@app.route('/api/toggle_vehicle_detection', methods=['POST'])
+def toggle_vehicle_detection():
+    """Toggle vehicle detection on/off"""
+    global stream_manager
+
+    try:
+        if not stream_manager or not stream_manager.is_running():
+            return jsonify({'error': 'Stream not running'})
+
+        data = request.get_json()
+        enable = data.get('enable', True)
+
+        # Toggle vehicle detection
+        success = stream_manager.toggle_vehicle_detection(enable)
+
+        if success:
+            status = "enabled" if enable else "disabled"
+            return jsonify({
+                'success': True,
+                'message': f'Vehicle detection {status}',
+                'vehicle_detection_enabled': enable
+            })
+        else:
+            return jsonify({'error': 'Failed to toggle vehicle detection'})
+
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
 @app.route('/api/screenshot', methods=['POST'])
 def take_screenshot():
     """Take screenshot dari current frame dan simpan ke detected_plates"""

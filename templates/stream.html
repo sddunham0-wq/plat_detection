@@ -757,46 +757,6 @@
 
             <!-- Statistics & Detection Column -->
             <div class="col-lg-4">
-                <!-- Statistics Grid -->
-                <div class="row g-3 mb-4">
-                    <div class="col-6">
-                        <div class="stat-card">
-                            <div class="stat-icon">
-                                <i class="bi bi-camera-video"></i>
-                            </div>
-                            <div class="stat-value" id="totalFrames">0</div>
-                            <div class="stat-label">Total Frames</div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="stat-card">
-                            <div class="stat-icon">
-                                <i class="bi bi-search"></i>
-                            </div>
-                            <div class="stat-value text-success" id="totalDetections">0</div>
-                            <div class="stat-label">Detections</div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="stat-card">
-                            <div class="stat-icon">
-                                <i class="bi bi-speedometer2"></i>
-                            </div>
-                            <div class="stat-value" id="successRate">0%</div>
-                            <div class="stat-label">Success Rate</div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="stat-card">
-                            <div class="stat-icon">
-                                <i class="bi bi-clock"></i>
-                            </div>
-                            <div class="stat-value" id="uptime">0s</div>
-                            <div class="stat-label">Uptime</div>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Object Detection Stats -->
                 <div class="row g-3 mb-4" id="objectStatsRow" style="display: none;">
                     <div class="col-12">
@@ -873,21 +833,6 @@
                     </div>
                 </div>
 
-                <!-- Success Rate Progress -->
-                <div class="card-elegant mb-4">
-                    <div class="p-3">
-                        <h6 class="text-muted mb-3">
-                            <i class="bi bi-graph-up me-2"></i>OCR Performance
-                        </h6>
-                        <div class="progress-elegant mb-2">
-                            <div class="progress-bar-elegant" 
-                                 id="successRateBar" 
-                                 style="width: 0%"></div>
-                        </div>
-                        <small class="text-muted">Processing accuracy in real-time</small>
-                    </div>
-                </div>
-
                 <!-- Live Detections -->
                 <div class="card-elegant">
                     <div class="p-3 border-bottom border-dark">
@@ -942,16 +887,11 @@
         const detectionsList = document.getElementById('detectionsList');
         const detectionCount = document.getElementById('detectionCount');
         
-        // Stats elements
+        // Stats elements (video overlay only)
         const frameId = document.getElementById('frameId');
         const currentFps = document.getElementById('currentFps');
         const currentDetections = document.getElementById('currentDetections');
-        const totalFrames = document.getElementById('totalFrames');
-        const totalDetections = document.getElementById('totalDetections');
-        const successRate = document.getElementById('successRate');
-        const successRateBar = document.getElementById('successRateBar');
-        const uptime = document.getElementById('uptime');
-        
+
         // Object detection elements
         const objectStatsRow = document.getElementById('objectStatsRow');
         const yoloToggle = document.getElementById('yoloToggle');
@@ -1007,9 +947,8 @@
         });
         
         socket.on('stats_update', function(data) {
-            updateStatistics(data);
             updateObjectStatistics(data);
-            
+
             // Auto-enable YOLO jika baru tersedia
             autoEnableYoloIfReady(data);
         });
@@ -1334,18 +1273,6 @@
             if (data.object_detections !== undefined) {
                 objectStatsRow.style.display = 'block';
             }
-        }
-        
-        function updateStatistics(data) {
-            // Animate counter updates
-            animateCounter(totalFrames, data.total_frames || 0);
-            animateCounter(totalDetections, data.total_detections || 0);
-            
-            const rate = data.success_rate || 0;
-            successRate.textContent = rate.toFixed(1) + '%';
-            successRateBar.style.width = rate + '%';
-            
-            uptime.textContent = formatUptime(data.uptime || 0);
         }
         
         function updateObjectStatistics(data) {

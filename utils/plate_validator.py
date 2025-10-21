@@ -7,11 +7,16 @@ import re
 import logging
 from typing import Optional
 
-# Indonesian plate patterns
+# Indonesian plate patterns (with and without spaces)
 INDONESIAN_PLATE_PATTERNS = [
-    r'^[A-Z]{1,2}\d{3,4}[A-Z]{1,3}$',  # Standard: B1234ABC, D5678XYZ
-    r'^[A-Z]\d{3}[A-Z]{2,3}$',         # Short format: B123AB
-    r'^[A-Z]{2}\d{3}[A-Z]{2}$',        # Regional: AB123CD
+    # Patterns WITH spaces (real-world format)
+    r'^[A-Z]{1,2}\s*\d{3,4}\s*[A-Z]{1,3}$',  # With spaces: B 1234 ABC, F 1344
+    r'^[A-Z]\s*\d{3}\s*[A-Z]{2,3}$',         # Short with spaces: B 123 AB
+    r'^[A-Z]{2}\s*\d{3}\s*[A-Z]{2}$',        # Regional with spaces: AB 123 CD
+    # Patterns WITHOUT spaces (legacy format)
+    r'^[A-Z]{1,2}\d{3,4}[A-Z]{1,3}$',        # Standard: B1234ABC, D5678XYZ
+    r'^[A-Z]\d{3}[A-Z]{2,3}$',               # Short format: B123AB
+    r'^[A-Z]{2}\d{3}[A-Z]{2}$',              # Regional: AB123CD
 ]
 
 # Known Indonesian regional codes (first 1-2 letters)
@@ -50,8 +55,9 @@ class PlateValidator:
         # Normalize text
         text = text.upper().strip()
 
-        # Length check (Indonesian plates: 5-10 characters)
-        if len(text) < 5 or len(text) > 10:
+        # Length check (Indonesian plates: 4-12 characters, allowing spaces)
+        # Examples: "F 1344" (6 chars), "B 1205 UNP" (10 chars)
+        if len(text) < 4 or len(text) > 12:
             self.logger.debug(f"Invalid length: {text} ({len(text)} chars)")
             return False
 

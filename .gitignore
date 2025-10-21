@@ -1,0 +1,72 @@
+# Environment variables (contains sensitive credentials)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+detected_plates.db
+
+# Logs
+logs/
+*.log
+
+# Detected plates output
+detected_plates/
+screenshots/
+debug_*.jpg
+test_*.jpg
+yolo_plate_result.jpg
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Model files (large files)
+*.pt
+*.pth
+*.onnx
+!yolov8n.pt
+!best.pt
+
+# Documentation (generated/temporary)
+*.md.backup
+*.md~

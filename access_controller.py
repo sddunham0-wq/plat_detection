@@ -22,9 +22,9 @@ class AccessController:
         Initialize access controller
 
         Args:
-            mysql_db: MySQL database instance (optional, will create if None)
+            mysql_db: MySQL database instance (optional, will use singleton if None)
         """
-        self.mysql_db = mysql_db or MySQLPlateDatabase()
+        self.mysql_db = mysql_db or MySQLPlateDatabase.get_instance()
         self.logger = logging.getLogger(__name__)
         self.config = MySQLConfig
 
@@ -156,9 +156,10 @@ class AccessController:
 
         # Log denied access jika enabled
         if self.config.LOG_DENIED_ACCESS:
-            # Note: vehicle_id = 0 untuk kendaraan tidak terdaftar
+            # FIXED: Use NULL (None) instead of 0 untuk unregistered vehicles
+            # Foreign key constraint allows NULL but not invalid IDs
             access_log_id = self.mysql_db.log_access(
-                vehicle_id=0,
+                vehicle_id=None,  # NULL untuk kendaraan tidak terdaftar
                 plate_number=plate_number,
                 status='ditolak',
                 image_url=image_path
