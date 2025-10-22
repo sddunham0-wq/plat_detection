@@ -133,32 +133,40 @@ class IndonesianPlateConfig:
     ENABLE_STRICT_PATTERN_VALIDATION = True  # ENABLED to reject invalid patterns (reduces false positives by 30%)
     REJECT_NON_PATTERN_MATCHES = True        # Reject plates that don't match Indonesian patterns
     MIN_REGIONAL_CODE_MATCH = True           # ENABLED to validate regional codes (B, D, L, etc) - reduces invalid plates by 20%
-    
+
+    # Smart validation settings (NEW - for anti-spam system)
+    SMART_VALIDATION_MIN_CONFIDENCE = 70  # Minimum confidence to log detection (prevents garbage OCR spam)
+
     # Preprocessing optimization untuk plat Indonesia (OPTIMIZED for OCR)
-    CONTRAST_ENHANCEMENT = 2.5   # Enhance contrast untuk plat hitam-putih (increased from 1.5 for better text clarity)
+    CONTRAST_ENHANCEMENT = 3.5   # Enhanced contrast for better OCR (increased from 2.5 → 3.5)
     NOISE_REDUCTION_KERNEL = (2, 2)  # Kernel untuk noise reduction
     MORPHOLOGY_KERNEL = (3, 3)   # Kernel untuk morphology operations
 
 class DetectionConfig:
     """Pengaturan deteksi plat nomor dengan enhanced algorithms"""
-    
+
     # Enhanced preprocessing settings
     GAUSSIAN_BLUR_KERNEL = (5, 5)     # Kernel untuk blur
     ADAPTIVE_THRESHOLD_BLOCK_SIZE = 11  # Block size untuk threshold
     ADAPTIVE_THRESHOLD_C = 2           # Constant untuk threshold
-    
+
     # Enhanced contour detection (more accurate)
     MIN_CONTOUR_AREA = 500            # Reduced for better small plate detection
     MAX_CONTOUR_AREA = 35000          # Reduced to filter out large non-plate objects
-    
+
     # Improved aspect ratio untuk plat nomor Indonesia
     MIN_ASPECT_RATIO = 1.5            # More tolerant for angled plates
     MAX_ASPECT_RATIO = 5.5            # Adjusted based on real plate observations
-    
+
     # ROI (Region of Interest) - area deteksi dalam persen
     # Format: (x%, y%, width%, height%)
     ROI_AREA = (0.05, 0.2, 0.9, 0.6)  # Expanded area for better coverage
-    
+
+    # Anti-spam detection settings (NEW)
+    DETECTION_COOLDOWN_TIME = 30      # Cooldown time in seconds (prevent spam logging)
+    BBOX_OVERLAP_THRESHOLD = 0.7      # IoU threshold for bbox overlap detection (70%)
+    MIN_OCR_CONFIDENCE_TO_LOG = 70    # Only log detections with confidence >= 70%
+
     # Enhanced duplicate detection
     DUPLICATE_THRESHOLD = 30          # Increased to 30 seconds untuk prevent spam
     MIN_PLATE_LENGTH = 5             # Minimal panjang karakter plat
@@ -339,7 +347,8 @@ class SystemConfig:
     """Pengaturan sistem dan logging"""
 
     # Folders
-    OUTPUT_FOLDER = "detected_plates"     # Folder untuk simpan gambar hasil
+    OUTPUT_FOLDER = "detected_plates"     # Folder untuk simpan gambar hasil (deprecated - use VEHICLE_IMAGE_FOLDER)
+    VEHICLE_IMAGE_FOLDER = "detected_vehicles"  # Folder untuk simpan foto kendaraan (full frame)
     LOG_FOLDER = "logs"                   # Folder untuk log files
     
     # Logging

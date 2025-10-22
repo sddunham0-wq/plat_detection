@@ -39,37 +39,37 @@ class OCREnsemble:
         
         self.logger = logging.getLogger(__name__)
         
-        # OCR Methods configuration - OPTIMIZED for CCTV conditions
+        # OCR Methods configuration - OPTIMIZED for CCTV conditions & SPEED
         self.ocr_methods = {
             'cctv_block': {
                 'config': '--psm 6 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
                 'language': 'eng',
-                'weight': 1.5  # Higher weight for CCTV conditions
+                'weight': 1.8  # ✅ INCREASED: Highest weight for best CCTV performance
             },
             'single_line': {
                 'config': '--psm 7 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
                 'language': 'ind+eng',
-                'weight': 1.3  # Increased weight for distant plates
+                'weight': 1.5  # ✅ INCREASED: Better for Indonesian plates
             },
             'single_word': {
                 'config': '--psm 8 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
                 'language': 'eng',
-                'weight': 1.1  # Slightly increased
+                'weight': 1.2  # ✅ INCREASED: Good for clear plates
             },
             'raw_line': {
                 'config': '--psm 13 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
                 'language': 'ind+eng',
-                'weight': 1.0  # Increased from 0.8
+                'weight': 0.9  # ⚡ DECREASED: Less reliable for structured plates
             },
             'tesseract_eng': {
                 'config': '--psm 6 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
                 'language': 'eng',
-                'weight': 1.2
+                'weight': 1.3  # ✅ INCREASED: Solid baseline method
             },
             'tesseract_indonesia': {
                 'config': '--psm 7 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
                 'language': 'ind',
-                'weight': 1.1
+                'weight': 1.2  # ✅ INCREASED: Better for regional plates
             }
         }
         
@@ -204,7 +204,7 @@ class OCREnsemble:
             for i, text in enumerate(ocr_data['text']):
                 if text.strip():
                     conf = float(ocr_data['conf'][i])
-                    if conf > 10:  # Very low threshold untuk ensemble
+                    if conf > 30:  # ✅ RAISED: Increased from 10 to 30 for better quality
                         texts.append(text.strip())
                         confidences.append(conf)
 
@@ -222,7 +222,7 @@ class OCREnsemble:
                         clean_text = ''.join(c for c in fallback_text if c.isalnum())
                         if clean_text:
                             texts = [clean_text]
-                            confidences = [70.0]  # Default confidence untuk fallback
+                            confidences = [60.0]  # ⚡ ADJUSTED: Reduced from 70 to 60 for more realistic fallback confidence
 
                 except Exception as fallback_error:
                     self.logger.debug(f'Fallback OCR juga gagal: {fallback_error}')

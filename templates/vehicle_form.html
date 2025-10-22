@@ -1,0 +1,197 @@
+{% extends "layout.html" %}
+
+{% block title %}
+    {% if vehicle %}Edit Vehicle{% else %}Add New Vehicle{% endif %} - CCTV Access Control
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">
+                        {% if vehicle %}
+                            <i class="bi bi-pencil-square"></i> Edit Vehicle
+                        {% else %}
+                            <i class="bi bi-plus-circle"></i> Add New Vehicle
+                        {% endif %}
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <form method="POST" id="vehicleForm" novalidate>
+                        <!-- Plate Number -->
+                        <div class="mb-3">
+                            <label for="plate_number" class="form-label">
+                                Plate Number <span class="text-danger">*</span>
+                            </label>
+                            <input type="text"
+                                   class="form-control form-control-lg"
+                                   id="plate_number"
+                                   name="plate_number"
+                                   value="{{ vehicle.plate_number if vehicle else '' }}"
+                                   placeholder="e.g., B1234ABC"
+                                   style="text-transform: uppercase;"
+                                   required
+                                   {% if vehicle %}readonly{% endif %}>
+                            <div class="invalid-feedback">
+                                Please enter a valid plate number (e.g., B1234ABC)
+                            </div>
+                            <small class="form-text text-muted">
+                                Format: 1-2 letters, 1-4 numbers, 2-3 letters (e.g., B1234ABC)
+                            </small>
+                        </div>
+
+                        <!-- Owner Name -->
+                        <div class="mb-3">
+                            <label for="owner_name" class="form-label">
+                                Owner Name <span class="text-danger">*</span>
+                            </label>
+                            <input type="text"
+                                   class="form-control"
+                                   id="owner_name"
+                                   name="owner_name"
+                                   value="{{ vehicle.owner_name if vehicle else '' }}"
+                                   placeholder="Enter owner name"
+                                   required>
+                            <div class="invalid-feedback">
+                                Please enter the owner's name
+                            </div>
+                        </div>
+
+                        <!-- Vehicle Type -->
+                        <div class="mb-3">
+                            <label for="vehicle_type" class="form-label">
+                                Vehicle Type <span class="text-danger">*</span>
+                            </label>
+                            <select class="form-select" id="vehicle_type" name="vehicle_type" required>
+                                <option value="">-- Select Vehicle Type --</option>
+                                <option value="Mobil" {% if vehicle and vehicle.vehicle_type == 'Mobil' %}selected{% endif %}>
+                                    Mobil (Car)
+                                </option>
+                                <option value="Motor" {% if vehicle and vehicle.vehicle_type == 'Motor' %}selected{% endif %}>
+                                    Motor (Motorcycle)
+                                </option>
+                            </select>
+                            <div class="invalid-feedback">
+                                Please select a vehicle type
+                            </div>
+                        </div>
+
+                        <!-- Contact Info -->
+                        <div class="mb-3">
+                            <label for="contact_info" class="form-label">
+                                Contact Info <span class="text-muted">(Optional)</span>
+                            </label>
+                            <input type="text"
+                                   class="form-control"
+                                   id="contact_info"
+                                   name="contact_info"
+                                   value="{{ vehicle.contact_info if vehicle else '' }}"
+                                   placeholder="Phone number or email">
+                            <small class="form-text text-muted">
+                                Phone number, email, or other contact information
+                            </small>
+                        </div>
+
+                        <!-- Status (only for edit) -->
+                        {% if vehicle %}
+                        <div class="mb-3">
+                            <label for="status" class="form-label">
+                                Status <span class="text-danger">*</span>
+                            </label>
+                            <select class="form-select" id="status" name="status" required>
+                                <option value="Terdaftar" {% if vehicle.status == 'Terdaftar' %}selected{% endif %}>
+                                    Terdaftar (Registered)
+                                </option>
+                                <option value="Belum" {% if vehicle.status == 'Belum' %}selected{% endif %}>
+                                    Belum (Not Registered)
+                                </option>
+                            </select>
+                            <small class="form-text text-muted">
+                                Status will be auto-updated when vehicle is detected by CCTV
+                            </small>
+                        </div>
+                        {% endif %}
+
+                        <!-- Form Actions -->
+                        <div class="d-flex justify-content-between mt-4">
+                            <a href="/vehicles" class="btn btn-secondary">
+                                <i class="bi bi-arrow-left"></i> Back to List
+                            </a>
+                            <button type="submit" class="btn btn-primary">
+                                {% if vehicle %}
+                                    <i class="bi bi-check-circle"></i> Update Vehicle
+                                {% else %}
+                                    <i class="bi bi-plus-circle"></i> Add Vehicle
+                                {% endif %}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Help Card -->
+            <div class="card mt-3 shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-title"><i class="bi bi-info-circle"></i> Help</h6>
+                    <ul class="mb-0">
+                        <li><strong>Plate Number:</strong> Must follow Indonesian format (e.g., B1234ABC, F1818HG)</li>
+                        <li><strong>Vehicle Type:</strong> Categorize vehicles for easier management</li>
+                        <li><strong>Auto-Detection:</strong> Once registered, vehicle will be automatically detected by CCTV</li>
+                        {% if vehicle %}
+                        <li><strong>Status Update:</strong> Status changes automatically when detected at gate</li>
+                        {% endif %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Form validation
+    (function() {
+        'use strict';
+
+        const form = document.getElementById('vehicleForm');
+
+        // Auto-uppercase plate number
+        document.getElementById('plate_number').addEventListener('input', function(e) {
+            e.target.value = e.target.value.toUpperCase();
+        });
+
+        // Plate number validation regex (Indonesian format)
+        const plateRegex = /^[A-Z]{1,2}\s*\d{1,4}\s*[A-Z]{2,3}$/;
+
+        form.addEventListener('submit', function(event) {
+            const plateInput = document.getElementById('plate_number');
+            const plateValue = plateInput.value.trim().replace(/\s+/g, '');
+
+            // Validate plate number format
+            if (!plateRegex.test(plateValue)) {
+                event.preventDefault();
+                event.stopPropagation();
+                plateInput.setCustomValidity('Invalid plate number format');
+            } else {
+                plateInput.setCustomValidity('');
+            }
+
+            // Bootstrap validation
+            if (!form.checkValidity()) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+
+            form.classList.add('was-validated');
+        }, false);
+
+        // Clear custom validity on input
+        document.getElementById('plate_number').addEventListener('input', function() {
+            this.setCustomValidity('');
+        });
+    })();
+</script>
+{% endblock %}

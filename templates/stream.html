@@ -111,6 +111,22 @@
             text-decoration: none;
         }
 
+        .navbar-nav .nav-link {
+            padding: 0.5rem 1rem;
+            border-radius: var(--radius-sm);
+            margin: 0 0.25rem;
+            font-weight: 500;
+            transition: var(--transition);
+        }
+
+        .navbar-nav .nav-link:hover {
+            background: rgba(20, 184, 166, 0.1);
+        }
+
+        .navbar-nav .nav-link.active {
+            background: rgba(20, 184, 166, 0.15);
+        }
+
         .status-indicator {
             width: 8px;
             height: 8px;
@@ -567,15 +583,46 @@
 </head>
 <body>
     <!-- Navigation -->
-    <nav class="navbar navbar-elegant fixed-top">
+    <nav class="navbar navbar-elegant fixed-top navbar-expand-lg">
         <div class="container-fluid">
-            <a class="navbar-brand-elegant" href="#">
+            <a class="navbar-brand-elegant" href="/">
                 <i class="bi bi-camera-video me-2"></i>
                 Live CCTV Plate Detection
             </a>
-            <div class="d-flex align-items-center">
-                <span class="status-indicator" id="statusIndicator"></span>
-                <span id="statusText" class="text-muted">Connecting...</span>
+
+            <!-- Toggler for mobile -->
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+                    style="border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05);">
+                <span class="navbar-toggler-icon" style="filter: invert(1);"></span>
+            </button>
+
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav mx-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/" style="color: var(--accent-primary); font-weight: 500;">
+                            <i class="bi bi-play-circle me-1"></i> Live Stream
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/vehicles" style="color: var(--text-secondary); transition: var(--transition);"
+                           onmouseover="this.style.color='var(--accent-primary)'"
+                           onmouseout="this.style.color='var(--text-secondary)'">
+                            <i class="bi bi-car-front me-1"></i> Vehicles
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/access-log" style="color: var(--text-secondary); transition: var(--transition);"
+                           onmouseover="this.style.color='var(--accent-primary)'"
+                           onmouseout="this.style.color='var(--text-secondary)'">
+                            <i class="bi bi-clock-history me-1"></i> Access Log
+                        </a>
+                    </li>
+                </ul>
+
+                <div class="d-flex align-items-center">
+                    <span class="status-indicator me-2" id="statusIndicator"></span>
+                    <span id="statusText" style="color: var(--text-primary);">Connecting...</span>
+                </div>
             </div>
         </div>
     </nav>
@@ -586,12 +633,12 @@
             <div class="col-lg-8">
                 <!-- Control Panel -->
                 <div class="control-panel">
-                    <h6 class="mb-3 text-muted">
+                    <h6 class="mb-3" style="color: var(--text-primary);">
                         <i class="bi bi-gear me-2"></i>Stream Configuration
                     </h6>
                     <div class="row g-3 align-items-end">
                         <div class="col-md-8">
-                            <label class="form-label text-muted small">Video Source</label>
+                            <label class="form-label small" style="color: var(--text-primary);">Video Source</label>
                             <input type="text"
                                    class="form-control form-control-elegant"
                                    id="sourceInput"
@@ -616,7 +663,7 @@
 
                 <!-- Multi-Camera Control Panel -->
                 <div class="control-panel" id="multiCameraPanel" style="display: none;">
-                    <h6 class="mb-3 text-muted">
+                    <h6 class="mb-3" style="color: var(--text-primary);">
                         <i class="bi bi-cameras me-2"></i>Multi-Camera Configuration
                     </h6>
                     <div class="row g-3 mb-3">
@@ -639,7 +686,7 @@
                     
                     <!-- Available Cameras List -->
                     <div id="availableCameras" style="display: none;">
-                        <h6 class="small text-muted mb-2">Available Cameras:</h6>
+                        <h6 class="small mb-2" style="color: var(--text-primary);">Available Cameras:</h6>
                         <div id="camerasList" class="mb-3">
                             <!-- Dynamic camera list will be populated here -->
                         </div>
@@ -647,10 +694,10 @@
                     
                     <!-- Mode Toggle -->
                     <div class="d-flex align-items-center justify-content-between">
-                        <label class="form-label text-muted small mb-0">Camera Mode:</label>
+                        <label class="form-label small mb-0" style="color: var(--text-primary);">Camera Mode:</label>
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="multiCameraToggle">
-                            <label class="form-check-label text-muted" for="multiCameraToggle">
+                            <label class="form-check-label" for="multiCameraToggle" style="color: var(--text-primary);">
                                 <span id="cameraModeLabel">Single Camera</span>
                             </label>
                         </div>
@@ -731,8 +778,8 @@
                         <div id="videoStatus" class="video-status" style="display: none;">
                             <div class="text-center">
                                 <i class="bi bi-exclamation-triangle text-warning fs-1 mb-3"></i>
-                                <h5>Video Feed Error</h5>
-                                <p class="text-muted mb-3">Check connection or reload page</p>
+                                <h5 style="color: var(--text-primary);">Video Feed Error</h5>
+                                <p class="mb-3" style="color: var(--text-primary);">Check connection or reload page</p>
                                 <button class="btn btn-primary-elegant btn-elegant" onclick="reloadVideo()">
                                     <i class="bi bi-arrow-clockwise me-1"></i> Retry
                                 </button>
@@ -763,7 +810,7 @@
                         <div class="card-elegant">
                             <div class="p-3 border-bottom border-dark">
                                 <div class="d-flex justify-content-between align-items-center">
-                                    <h6 class="text-muted mb-0">
+                                    <h6 class="mb-0" style="color: var(--text-primary);">
                                         <i class="bi bi-eye me-2"></i>Object Detection
                                     </h6>
                                     <div class="d-flex gap-3">
@@ -837,7 +884,7 @@
                 <div class="card-elegant">
                     <div class="p-3 border-bottom border-dark">
                         <div class="d-flex justify-content-between align-items-center">
-                            <h6 class="text-muted mb-0">
+                            <h6 class="mb-0" style="color: var(--text-primary);">
                                 <i class="bi bi-list-ul me-2"></i>Live Detections
                             </h6>
                             <span class="badge bg-success" id="detectionCount">0</span>
@@ -845,7 +892,7 @@
                     </div>
                     <div class="p-3">
                         <div class="detection-feed" id="detectionsList">
-                            <div class="text-center text-muted py-5">
+                            <div class="text-center py-5" style="color: var(--text-primary);">
                                 <div class="loading-spinner mx-auto mb-3 floating"></div>
                                 <p>Waiting for detections...</p>
                             </div>

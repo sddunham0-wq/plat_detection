@@ -225,6 +225,7 @@ class HeadlessStreamManager:
                 # Unpack detection data
                 detection = detection_data['detection']
                 source_info = detection_data['source_info']
+                full_frame = detection_data.get('full_frame')  # NEW: Get full frame
 
                 # Save to SQLite (always)
                 try:
@@ -236,22 +237,37 @@ class HeadlessStreamManager:
                 except Exception as e:
                     self.logger.error(f"SQLite save error: {e}")
 
+                # Save vehicle image (full frame) if available
+                vehicle_image_path = None
+                if full_frame is not None:
+                    try:
+                        vehicle_image_path = self.database.save_vehicle_image(
+                            full_frame=full_frame,
+                            plate_number=detection.text,
+                            timestamp=detection.timestamp
+                        )
+                    except Exception as e:
+                        self.logger.error(f"Vehicle image save error: {e}")
+
                 # Process through Access Controller if enabled (MySQL)
                 if self.enable_access_control and self.access_controller:
                     try:
                         access_result = self.access_controller.process_detection(
                             detection,
-                            image_path=None
+                            image_path=vehicle_image_path  # NEW: Pass vehicle image path instead of plate image
                         )
 
                         # Attach access_result to detection for frontend
                         detection.access_result = access_result
 
-                        # Log access result
+                        # Log access result (ONLY if not filtered spam)
                         if access_result['access'] == 'Authorized':
                             self.logger.info(f"✅ ACCESS AUTHORIZED: {detection.text} - {access_result['vehicle']['owner_name']}")
                         elif access_result['access'] == 'Denied':
                             self.logger.warning(f"❌ ACCESS DENIED: {detection.text} - Not registered")
+                        elif access_result['access'] == 'Filtered':
+                            # Spam filtered - don't log (keep terminal clean)
+                            pass
                     except Exception as e:
                         self.logger.error(f"MySQL access control error: {e}")
 
@@ -756,7 +772,8 @@ class HeadlessStreamManager:
                             # Add to background save queue instead of blocking save
                             detection_data = {
                                 'detection': detection,
-                                'source_info': str(self.source)
+                                'source_info': str(self.source),
+                                'full_frame': frame.copy()  # NEW: Pass full frame for vehicle image
                             }
 
                             # Try to add to queue (non-blocking)

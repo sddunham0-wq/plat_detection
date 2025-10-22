@@ -180,10 +180,10 @@ class PlateDatabase:
     def _save_plate_image(self, detection: PlateDetection) -> str:
         """
         Simpan gambar plat ke file
-        
+
         Args:
             detection: PlateDetection object
-            
+
         Returns:
             str: Path ke file gambar
         """
@@ -191,11 +191,11 @@ class PlateDatabase:
             # Ensure output folder exists
             if not os.path.exists(SystemConfig.OUTPUT_FOLDER):
                 os.makedirs(SystemConfig.OUTPUT_FOLDER)
-            
+
             # Generate filename dengan timestamp
             timestamp = datetime.fromtimestamp(detection.timestamp)
             filename = f"{detection.text}_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg"
-            
+
             # Handle duplicate filenames
             counter = 1
             base_filename = filename
@@ -203,16 +203,60 @@ class PlateDatabase:
                 name, ext = os.path.splitext(base_filename)
                 filename = f"{name}_{counter}{ext}"
                 counter += 1
-            
+
             image_path = os.path.join(SystemConfig.OUTPUT_FOLDER, filename)
-            
+
             # Save image
             cv2.imwrite(image_path, detection.processed_image)
-            
+
             return image_path
-            
+
         except Exception as e:
             self.logger.error(f"Error saving plate image: {str(e)}")
+            return None
+
+    def save_vehicle_image(self, full_frame, plate_number: str, timestamp: float = None) -> str:
+        """
+        Simpan foto kendaraan (full frame) ke file
+
+        Args:
+            full_frame: Full frame image dari CCTV
+            plate_number: Nomor plat kendaraan
+            timestamp: Timestamp detection (optional)
+
+        Returns:
+            str: Path ke file gambar vehicle
+        """
+        try:
+            # Ensure output folder exists
+            if not os.path.exists(SystemConfig.VEHICLE_IMAGE_FOLDER):
+                os.makedirs(SystemConfig.VEHICLE_IMAGE_FOLDER)
+
+            # Generate filename dengan timestamp
+            if timestamp is None:
+                timestamp = time.time()
+
+            dt = datetime.fromtimestamp(timestamp)
+            filename = f"{plate_number}_{dt.strftime('%Y%m%d_%H%M%S')}.jpg"
+
+            # Handle duplicate filenames
+            counter = 1
+            base_filename = filename
+            while os.path.exists(os.path.join(SystemConfig.VEHICLE_IMAGE_FOLDER, filename)):
+                name, ext = os.path.splitext(base_filename)
+                filename = f"{name}_{counter}{ext}"
+                counter += 1
+
+            image_path = os.path.join(SystemConfig.VEHICLE_IMAGE_FOLDER, filename)
+
+            # Save full frame image
+            cv2.imwrite(image_path, full_frame)
+
+            self.logger.debug(f"Vehicle image saved: {image_path}")
+            return image_path
+
+        except Exception as e:
+            self.logger.error(f"Error saving vehicle image: {str(e)}")
             return None
     
     def get_recent_detections(self, limit: int = 100) -> List[Dict]:
