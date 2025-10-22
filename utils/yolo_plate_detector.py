@@ -72,6 +72,8 @@ class PlateDetection:
     detection_method: str = "yolo"
 
 class YOLOPlateDetector:
+
+    
     """
     YOLOv8-based license plate detector yang akurat seperti object detection
     """
@@ -88,8 +90,8 @@ class YOLOPlateDetector:
         """
         self.confidence = confidence
         self.streaming_mode = streaming_mode
-        self.enable_deskew = enable_deskew and DESKEW_AVAILABLE
-        self.enable_bbox_refinement = enable_bbox_refinement and BBOX_REFINER_AVAILABLE
+        self.enable_deskew = False
+        self.enable_bbox_refinement = False 
         self.model = None
         self.enabled = False
         self.logger = logging.getLogger(__name__)
@@ -287,12 +289,12 @@ class YOLOPlateDetector:
             # Run YOLO inference with stable parameters for CCTV streaming
             results = self.model(
                 image,
-                conf=self.confidence,
-                verbose=False,
-                imgsz=1280,          # Stable resolution for realtime performance
-                iou=0.65,            # Standard NMS IOU threshold
-                max_det=10,          # Balanced detection slots
-                half=True            # Enable FP16 for faster inference
+                conf=0.65,         # ✅ Naikkan confidence threshold
+                imgsz=1280,
+                iou=0.80,          # ✅ CRITICAL: Naikkan IOU untuk bbox stabil
+                max_det=5,         # ✅ Kurangi deteksi untuk fokus ke plat terbaik
+                half=True,
+                agnostic_nms=True  # ✅ Better NMS
             )
             
             # Process results
@@ -354,19 +356,21 @@ class YOLOPlateDetector:
                             # ✅ CRITICAL FIX: Limit ROI size for better OCR
                             # Indonesian plates typical: ~400x100 pixels
                             # Prevent OCR from processing huge images (causes NO TEXT)
-                            MAX_ROI_WIDTH = 400
-                            MAX_ROI_HEIGHT = 150
+                            # ✅ FIXED: Relaxed ROI limits untuk Indonesian plates
+                                MAX_ROI_WIDTH = 800    # Increased from 400 (plat bisa lebih besar di CCTV dekat)
+                                MAX_ROI_HEIGHT = 300   # Increased from 150
 
-                            if final_w > MAX_ROI_WIDTH or final_h > MAX_ROI_HEIGHT:
-                                # ROI too large, scale down to reasonable size
-                                scale = min(MAX_ROI_WIDTH / final_w, MAX_ROI_HEIGHT / final_h)
-                                new_w = int(final_w * scale)
-                                new_h = int(final_h * scale)
-                                # Re-center bbox after scaling
-                                new_x = final_x + (final_w - new_w) // 2
-                                new_y = final_y + (final_h - new_h) // 2
-                                final_x, final_y, final_w, final_h = new_x, new_y, new_w, new_h
-                                self.logger.debug(f"ROI size limited: {final_w}x{final_h} (scale: {scale:.2f})")
+                                # Only limit if EXTREMELY large (prevent memory issues)
+                                if final_w > MAX_ROI_WIDTH or final_h > MAX_ROI_HEIGHT:
+                                    # ROI too large, scale down to reasonable size
+                                    scale = min(MAX_ROI_WIDTH / final_w, MAX_ROI_HEIGHT / final_h)
+                                    new_w = int(final_w * scale)
+                                    new_h = int(final_h * scale)
+                                    # Re-center bbox after scaling
+                                    new_x = final_x + (final_w - new_w) // 2
+                                    new_y = final_y + (final_h - new_h) // 2
+                                    final_x, final_y, final_w, final_h = new_x, new_y, new_w, new_h
+                                    self.logger.debug(f"ROI size limited: {final_w}x{final_h} (scale: {scale:.2f})")
 
                             # Extract ROI and run OCR
                             try:
@@ -900,14 +904,14 @@ class YOLOPlateDetector:
         # YOLO confidence 55% already gives accurate bbox, minimal expansion needed
         # Far away (small bbox) = modest expansion to capture full plate
         # Close up (large bbox) = minimal expansion, bbox already accurate
-        if size_ratio < 0.01:  # Very far (< 1% of image)
-            expansion_ratio = 0.07  # 7% expansion (was 15%, reduced 53%)
-        elif size_ratio < 0.03:  # Far (1-3% of image)
-            expansion_ratio = 0.05  # 5% expansion (was 12%, reduced 58%)
-        elif size_ratio < 0.10:  # Medium distance (3-10% of image)
-            expansion_ratio = 0.03  # 3% expansion (was 8%, reduced 62%)
-        else:  # Close (> 10% of image)
-            expansion_ratio = 0.02  # 2% expansion (was 5%, reduced 60%)
+        if size_ratio < 0.01:
+            expansion_ratio = 0.02  # ✅ Reduced 71% (dari 0.07)
+        elif size_ratio < 0.03:
+            expansion_ratio = 0.015  # ✅ Reduced 70% (dari 0.05)
+        elif size_ratio < 0.10:
+            expansion_ratio = 0.01   # ✅ Reduced 67% (dari 0.03)
+        else:
+            expansion_ratio = 0.005  # ✅ Reduced 75% (dari 0.02)
 
         # Calculate expansion pixels
         expand_w = int(w * expansion_ratio)
@@ -927,7 +931,7 @@ class YOLOPlateDetector:
         # ✅ CRITICAL FIX: VERY RELAXED threshold (was 1.5, now 3.0)
         # YOLO 55% confidence already gives good bbox shape
         # Only correct if EXTREMELY off from target (prevent forced expansion)
-        if abs(current_aspect - target_aspect) > 3.0:
+        if abs(current_aspect - target_aspect) > 5.0:
             # Adjust width to match target aspect ratio
             new_w = int(h_expanded * target_aspect)
 
@@ -1036,6 +1040,30 @@ class YOLOPlateDetector:
             "success_rate": round(success_rate, 1),
             "detection_method": "YOLO"
         }
+
+class BboxSmoother:
+    """Smooth bbox across frames untuk anti jitter"""
+    def __init__(self, alpha=0.3):
+        self.alpha = alpha
+        self.prev_bbox = None
+        
+    def smooth(self, bbox):
+        """Exponential moving average"""
+        x, y, w, h = bbox
+        
+        if self.prev_bbox is None:
+            self.prev_bbox = [x, y, w, h]
+            return bbox
+            
+        # Weighted average dengan frame sebelumnya
+        smooth_x = int(self.prev_bbox[0] * self.alpha + x * (1 - self.alpha))
+        smooth_y = int(self.prev_bbox[1] * self.alpha + y * (1 - self.alpha))
+        smooth_w = int(self.prev_bbox[2] * self.alpha + w * (1 - self.alpha))
+        smooth_h = int(self.prev_bbox[3] * self.alpha + h * (1 - self.alpha))
+        
+        self.prev_bbox = [smooth_x, smooth_y, smooth_w, smooth_h]
+        return (smooth_x, smooth_y, smooth_w, smooth_h)
+
 
 def check_and_download_license_plate_model():
     """

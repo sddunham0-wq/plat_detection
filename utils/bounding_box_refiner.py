@@ -37,10 +37,10 @@ class BoundingBoxRefiner:
         self.gaussian_kernel = 5
 
         # Contour filtering parameters
-        self.min_contour_area = 500
-        self.max_contour_area = 50000
-        self.min_aspect_ratio = 1.5
-        self.max_aspect_ratio = 6.0
+        self.min_contour_area = 200
+        self.max_contour_area = 10000
+        self.min_aspect_ratio = 1.2
+        self.max_aspect_ratio = 8.0
 
         # Morphological operation kernels
         self.closing_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
@@ -66,7 +66,7 @@ class BoundingBoxRefiner:
             x, y, w, h = original_bbox
 
             # Expand ROI untuk better edge detection
-            expansion = 20
+            expansion = 5
             x_expanded = max(0, x - expansion)
             y_expanded = max(0, y - expansion)
             w_expanded = min(image.shape[1] - x_expanded, w + 2 * expansion)
