@@ -6,165 +6,266 @@
     <title>Plat Terdeteksi - Sistem Parkir SMK</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <style>
-        /* Clean Blue-White Design */
-        body {
-            background: linear-gradient(135deg, #e3f2fd 0%, #f5f9fc 100%);
-            min-height: 100vh;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        /* Modern Blue-White Design with Photo Focus */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
 
-        /* Gallery Styles */
-        .gallery-container {
+        body {
+            background: #f5f7fa;
+            min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             padding: 20px;
-            max-width: 1400px;
+        }
+
+        /* Container */
+        .gallery-container {
+            max-width: 1600px;
             margin: 0 auto;
         }
 
+        /* Header Section */
         .gallery-header {
-            background: linear-gradient(135deg, #1976d2 0%, #2196f3 100%);
+            background: #1976d2;
             color: white;
-            padding: 30px;
-            border-radius: 12px;
+            padding: 40px 30px;
+            border-radius: 16px;
             margin-bottom: 30px;
             text-align: center;
-            box-shadow: 0 2px 8px rgba(25, 118, 210, 0.15);
+            box-shadow: 0 8px 24px rgba(21, 101, 192, 0.3);
+            position: relative;
         }
 
+        .gallery-header h1 {
+            font-size: 2.5em;
+            font-weight: 700;
+            margin-bottom: 10px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .gallery-header p {
+            font-size: 1.1em;
+            opacity: 0.95;
+            margin-bottom: 25px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Statistics */
         .gallery-stats {
             display: flex;
             justify-content: center;
-            gap: 40px;
-            margin-top: 20px;
+            gap: 50px;
+            margin: 25px 0;
+            position: relative;
+            z-index: 1;
         }
 
         .stat-item {
-            text-align: center;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 20px 40px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
         }
 
         .stat-number {
-            font-size: 36px;
-            font-weight: bold;
+            font-size: 48px;
+            font-weight: 800;
             display: block;
+            line-height: 1;
+            margin-bottom: 8px;
         }
 
         .stat-label {
-            font-size: 14px;
-            opacity: 0.95;
+            font-size: 13px;
+            opacity: 0.9;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 1px;
+            font-weight: 600;
         }
 
+        /* Action Buttons */
+        .header-actions {
+            margin-top: 20px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .refresh-btn, .back-btn {
+            background: white;
+            color: #1565c0;
+            border: none;
+            padding: 12px 28px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 15px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Gallery Grid - Photo Focus Layout */
         .gallery-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 25px;
             margin-top: 30px;
         }
 
+        /* Plate Card - Redesigned with Photo Focus */
         .plate-card {
             background: white;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(25, 118, 210, 0.08);
+            border-radius: 16px;
             overflow: hidden;
-            transition: transform 0.3s, box-shadow 0.3s;
-            border: 1px solid #e3f2fd;
+            box-shadow: 0 4px 16px rgba(21, 101, 192, 0.1);
+            border: 2px solid #e0e0e0;
+            position: relative;
         }
 
-        .plate-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 4px 12px rgba(25, 118, 210, 0.2);
-            border-color: #90caf9;
+        /* Image Container - Much Larger */
+        .plate-image-container {
+            position: relative;
+            width: 100%;
+            height: 200px;
+            background: #e8f0fe;
+            overflow: hidden;
         }
 
         .plate-image {
             width: 100%;
-            height: 150px;
+            height: 100%;
             object-fit: contain;
-            background: #f5f5f5;
-            padding: 10px;
-        }
-
-        .plate-info {
             padding: 15px;
+            cursor: pointer;
         }
 
-        .plate-text {
-            font-size: 24px;
-            font-weight: 700;
-            color: #1976d2;
-            margin-bottom: 10px;
-            font-family: 'Courier New', monospace;
-            letter-spacing: 2px;
-            background-color: #e3f2fd;
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            border: 1px solid #bbdefb;
-            display: inline-block;
-        }
-
-        .info-row {
-            display: flex;
-            align-items: center;
-            margin-bottom: 8px;
-            font-size: 14px;
-            color: #666;
-        }
-
-        .info-icon {
-            margin-right: 8px;
-            min-width: 20px;
-        }
-
-        .vehicle-type {
-            display: inline-block;
-            padding: 4px 12px;
+        /* Image Overlay Badge */
+        .image-badge {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: rgba(21, 101, 192, 0.9);
+            color: white;
+            padding: 6px 14px;
             border-radius: 20px;
             font-size: 12px;
-            font-weight: bold;
+            font-weight: 700;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Plate Info Section */
+        .plate-info {
+            padding: 20px;
+            background: white;
+        }
+
+        /* Plate Text - Prominent Display */
+        .plate-text {
+            font-size: 28px;
+            font-weight: 800;
+            color: #1565c0;
+            text-align: center;
+            margin-bottom: 15px;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 3px;
+            background: #e8f0fe;
+            padding: 12px 20px;
+            border-radius: 10px;
+            border: 2px solid #90caf9;
+            box-shadow: 0 2px 8px rgba(21, 101, 192, 0.1);
+        }
+
+        /* Info Rows - Cleaner Design */
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 15px;
+        }
+
+        .info-item {
+            display: flex;
+            flex-direction: column;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 3px solid #2196f3;
+        }
+
+        .info-label {
+            font-size: 11px;
+            color: #666;
             text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .info-value {
+            font-size: 14px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        /* Vehicle Type Badge */
+        .vehicle-type {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .vehicle-mobil {
-            background: #e3f2fd;
-            color: #1976d2;
+            background: #bbdefb;
+            color: #0d47a1;
         }
 
         .vehicle-motor {
-            background: #fff3e0;
-            color: #f57c00;
-        }
-
-        .vehicle-truk {
-            background: #e8f5e9;
-            color: #388e3c;
+            background: #ffe0b2;
+            color: #e65100;
         }
 
         .vehicle-unknown {
-            background: #f5f5f5;
-            color: #757575;
+            background: #e0e0e0;
+            color: #616161;
         }
 
+        /* Color Badge */
         .color-badge {
             display: inline-flex;
             align-items: center;
-            padding: 4px 12px;
+            padding: 6px 14px;
             border-radius: 20px;
             font-size: 12px;
             font-weight: 600;
-            background: #f5f5f5;
-            color: #333;
-            margin-left: 5px;
+            background: white;
+            border: 2px solid #e0e0e0;
         }
 
         .color-dot {
-            width: 12px;
-            height: 12px;
+            width: 14px;
+            height: 14px;
             border-radius: 50%;
-            margin-right: 6px;
-            border: 1px solid rgba(0,0,0,0.1);
+            margin-right: 8px;
+            border: 2px solid rgba(0, 0, 0, 0.1);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
         }
 
-        /* Color definitions */
+        /* Color Definitions */
         .color-hitam { background-color: #000000; }
         .color-putih { background-color: #FFFFFF; }
         .color-abu-abu { background-color: #808080; }
@@ -174,84 +275,140 @@
         .color-kuning { background-color: #FFD700; }
         .color-orange { background-color: #FF8C00; }
         .color-silver { background-color: #C0C0C0; }
+        .color-coklat { background-color: #8B4513; }
         .color-unknown { background-color: #CCCCCC; }
 
+        /* Owner Badge */
+        .owner-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            background: #c8e6c9;
+            color: #2e7d32;
+            border: 1px solid #81c784;
+        }
+
+        .owner-badge.unregistered {
+            background: #ffcdd2;
+            color: #c62828;
+            border: 1px solid #e57373;
+        }
+
+        /* Empty State */
         .no-plates {
             text-align: center;
-            padding: 60px 20px;
-            color: #999;
+            padding: 80px 20px;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 16px rgba(21, 101, 192, 0.1);
         }
 
         .no-plates-icon {
-            font-size: 64px;
+            font-size: 80px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .no-plates h2 {
+            color: #1565c0;
+            margin-bottom: 10px;
+        }
+
+        .no-plates p {
+            color: #666;
+            font-size: 16px;
+        }
+
+        /* Loading State */
+        .loading {
+            text-align: center;
+            padding: 80px;
+            color: white;
+            font-size: 20px;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
             margin-bottom: 20px;
         }
 
-        .refresh-btn {
-            background: white;
-            color: #1976d2;
-            border: 2px solid white;
-            padding: 10px 24px;
-            border-radius: 25px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: all 0.3s;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
 
-        .refresh-btn:hover {
-            background: rgba(255, 255, 255, 0.95);
-            color: #0d47a1;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .gallery-grid {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+
+            .gallery-header h1 {
+                font-size: 1.8em;
+            }
+
+            .gallery-stats {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .stat-item {
+                padding: 15px 30px;
+            }
+
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
-        .back-btn {
-            display: inline-block;
-            background: rgba(255,255,255,0.2);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 25px;
-            text-decoration: none;
-            margin-top: 15px;
-            transition: background 0.3s;
-        }
-
-        .back-btn:hover {
-            background: rgba(255,255,255,0.3);
-        }
-
-        .loading {
-            text-align: center;
-            padding: 60px;
-            color: #999;
-        }
     </style>
 </head>
 <body>
     <div class="gallery-container">
+        <!-- Header Section -->
         <div class="gallery-header">
-            <h1>📸 Plat Nomor Terdeteksi</h1>
-            <p>Riwayat plat nomor yang berhasil dibaca oleh sistem OCR</p>
+            <h1>📸 Galeri Plat Nomor Terdeteksi</h1>
+            <p>Riwayat plat nomor kendaraan yang berhasil dideteksi dan dibaca oleh sistem OCR</p>
 
-            <div class="gallery-stats">
+            <div class="gallery-stats text-white">
                 <div class="stat-item">
                     <span class="stat-number" id="total-plates">0</span>
-                    <span class="stat-label">Total Terdeteksi</span>
+                    <span class="stat-label ">Total Terdeteksi</span>
                 </div>
                 <div class="stat-item">
                     <span class="stat-number" id="total-registered">0</span>
                     <span class="stat-label">Terdaftar</span>
                 </div>
+                <div class="stat-item">
+                    <span class="stat-number" id="success-rate">0%</span>
+                    <span class="stat-label">Success Rate</span>
+                </div>
             </div>
 
-            <button class="refresh-btn" onclick="loadPlates()">🔄 Refresh</button>
-            <a href="/" class="back-btn">⬅️ Kembali ke Dashboard</a>
+            <div class="header-actions">
+                <button class="refresh-btn" onclick="loadPlates()">
+                    Refresh Data
+                </button>
+                <a href="/" class="back-btn">
+                    Kembali ke Dashboard
+                </a>
+            </div>
         </div>
 
+        <!-- Gallery Content -->
         <div id="gallery-content">
             <div class="loading">
-                <h2>⏳ Loading...</h2>
+                <div class="loading-spinner"></div>
+                <h2>Memuat data plat...</h2>
             </div>
         </div>
     </div>
@@ -272,7 +429,7 @@
                     document.getElementById('gallery-content').innerHTML = `
                         <div class="no-plates">
                             <div class="no-plates-icon">❌</div>
-                            <h2>Error loading data</h2>
+                            <h2>Error Memuat Data</h2>
                             <p>${error.message}</p>
                         </div>
                     `;
@@ -288,7 +445,7 @@
                     <div class="no-plates">
                         <div class="no-plates-icon">📷</div>
                         <h2>Belum Ada Plat Terdeteksi</h2>
-                        <p>Plat nomor akan muncul di sini setelah berhasil dideteksi</p>
+                        <p>Plat nomor akan muncul di sini setelah berhasil dideteksi oleh sistem</p>
                     </div>
                 `;
                 return;
@@ -296,38 +453,53 @@
 
             let html = '<div class="gallery-grid">';
 
-            plates.forEach(plate => {
+            plates.forEach((plate, index) => {
                 const vehicleClass = `vehicle-${(plate.vehicle_type || 'unknown').toLowerCase()}`;
-                const colorClass = `color-${(plate.vehicle_color || 'unknown').toLowerCase()}`;
+                const colorClass = `color-${(plate.vehicle_color || 'unknown').toLowerCase().replace(/[^a-z]/g, '-')}`;
+                const isRegistered = plate.nama_pemilik && plate.nama_pemilik !== 'Tidak Terdaftar' && plate.nama_pemilik !== 'Unknown';
+                const ownerClass = isRegistered ? 'owner-badge' : 'owner-badge unregistered';
 
                 html += `
                     <div class="plate-card">
-                        <img src="/${plate.image_path}" alt="${plate.plate_text}" class="plate-image" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22300%22 height=%22150%22><rect width=%22300%22 height=%22150%22 fill=%22%23ddd%22/><text x=%2250%25%22 y=%2250%25%22 fill=%22%23999%22 text-anchor=%22middle%22 dy=%22.3em%22>Image not found</text></svg>'">
+                        <div class="plate-image-container">
+                            <img
+                                src="/${plate.image_path}"
+                                alt="Plat ${plate.plate_text}"
+                                class="plate-image"
+                                loading="lazy"
+                                onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22200%22%3E%3Crect width=%22400%22 height=%22200%22 fill=%22%23e3f2fd%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 fill=%22%231565c0%22 font-size=%2218%22 text-anchor=%22middle%22 dy=%22.3em%22 font-family=%22Arial%22%3E📷 Gambar Tidak Tersedia%3C/text%3E%3C/svg%3E';"
+                            >
+                            <div class="image-badge">${plate.vehicle_type || 'Unknown'}</div>
+                        </div>
 
                         <div class="plate-info">
                             <div class="plate-text">${plate.plate_text}</div>
 
-                            <div class="info-row">
-                                <span class="info-icon">🚗</span>
-                                <span class="vehicle-type ${vehicleClass}">${plate.vehicle_type || 'Unknown'}</span>
-                            </div>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <span class="info-label">🚗 Jenis Kendaraan</span>
+                                    <span class="vehicle-type ${vehicleClass}">${plate.vehicle_type || 'Unknown'}</span>
+                                </div>
 
-                            <div class="info-row">
-                                <span class="info-icon">🎨</span>
-                                <span class="color-badge">
-                                    <span class="color-dot ${colorClass}"></span>
-                                    ${plate.vehicle_color || 'Unknown'}
-                                </span>
-                            </div>
+                                <div class="info-item">
+                                    <span class="info-label">🎨 Warna</span>
+                                    <span class="color-badge">
+                                        <span class="color-dot ${colorClass}"></span>
+                                        ${plate.vehicle_color || 'Unknown'}
+                                    </span>
+                                </div>
 
-                            <div class="info-row">
-                                <span class="info-icon">🕐</span>
-                                <span>${plate.waktu_deteksi}</span>
-                            </div>
+                                <div class="info-item">
+                                    <span class="info-label">🕐 Waktu Deteksi</span>
+                                    <span class="info-value">${plate.waktu_deteksi}</span>
+                                </div>
 
-                            <div class="info-row">
-                                <span class="info-icon">👤</span>
-                                <span>${plate.nama_pemilik || 'Tidak Terdaftar'}</span>
+                                <div class="info-item">
+                                    <span class="info-label">👤 Pemilik</span>
+                                    <span class="${ownerClass}">
+                                        ${isRegistered ? '✓ ' : '✗ '}${plate.nama_pemilik || 'Tidak Terdaftar'}
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -344,10 +516,13 @@
 
             const registered = plates.filter(p => p.nama_pemilik && p.nama_pemilik !== 'Tidak Terdaftar' && p.nama_pemilik !== 'Unknown').length;
             document.getElementById('total-registered').textContent = registered;
+
+            const successRate = plates.length > 0 ? Math.round((registered / plates.length) * 100) : 0;
+            document.getElementById('success-rate').textContent = successRate + '%';
         }
 
-        // Auto-refresh every 10 seconds
-        setInterval(loadPlates, 10000);
+        // Auto-refresh every 15 seconds
+        setInterval(loadPlates, 15000);
 
         // Load on page load
         loadPlates();

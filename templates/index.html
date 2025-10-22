@@ -415,20 +415,80 @@
                     </div>
                 `;
             } else {
-                const confidence = Math.round(data.confidence * 100);
-                const confidenceColor = confidence > 80 ? 'success' : confidence > 60 ? 'warning' : 'danger';
+                // ★ UPDATE: Show ALL detected plates, bukan hanya plat terbaru
+                let platesHTML = '';
 
-                statusDiv.innerHTML = `
-                    <div class="text-center">
-                        <i class="fas fa-check-circle fa-2x mb-3 text-success"></i>
-                        <h4>${data.plate_text}</h4>
-                        <div class="progress mb-2">
-                            <div class="progress-bar bg-${confidenceColor}"
-                                 style="width: ${confidence}%">${confidence}%</div>
+                // ★ IMPROVED: Show all detected plates dengan GREEN LABELS (matching bounding box)
+                if (data.all_plates && data.all_plates.length > 0) {
+                    platesHTML = `
+                        <div class="text-center mb-3">
+                            <i class="fas fa-check-circle fa-2x mb-3 text-success"></i>
+                            <p class="mb-2"><strong>${data.all_plates.length} plat terdeteksi:</strong></p>
                         </div>
-                        <small>Terdeteksi: ${new Date(data.timestamp).toLocaleTimeString()}</small>
-                    </div>
-                `;
+                    `;
+
+                    // Loop semua plat yang terdeteksi
+                    data.all_plates.forEach((plate, idx) => {
+                        const confidence = Math.round(plate.confidence * 100);
+                        const confidenceColor = confidence > 80 ? 'success' : confidence > 60 ? 'warning' : 'danger';
+
+                        // ★ Label yang SAMA dengan bounding box hijau di video
+                        const label = plate.text
+                            ? `${plate.text} (${confidence}%)`
+                            : `PLAT ${idx + 1}`;
+
+                        platesHTML += `
+                            <div class="border border-success rounded p-3 mb-2" style="background: linear-gradient(135deg, #e8f5e9 0%, #ffffff 100%);">
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <!-- Green badge matching bounding box -->
+                                    <span class="badge badge-success px-3 py-2" style="font-size: 0.9rem;">
+                                        <i class="fas fa-car"></i> PLAT ${idx + 1}
+                                    </span>
+                                    <!-- Label text (same as video overlay) -->
+                                    <strong class="text-success" style="font-size: 1.1rem;">
+                                        ${label}
+                                    </strong>
+                                </div>
+                                ${plate.text ? `
+                                    <div class="progress mt-2" style="height: 8px;">
+                                        <div class="progress-bar bg-${confidenceColor}"
+                                             style="width: ${confidence}%"
+                                             role="progressbar">${confidence}%</div>
+                                    </div>
+                                    <small class="text-muted">Confidence: ${confidence}%</small>
+                                ` : `
+                                    <small class="text-muted mt-2 d-block">Menunggu OCR...</small>
+                                `}
+                            </div>
+                        `;
+                    });
+                } else {
+                    // Fallback: Show single latest detection (backwards compatibility)
+                    const confidence = Math.round(data.confidence * 100);
+                    const confidenceColor = confidence > 80 ? 'success' : confidence > 60 ? 'warning' : 'danger';
+
+                    platesHTML = `
+                        <div class="text-center">
+                            <i class="fas fa-check-circle fa-2x mb-3 text-success"></i>
+                            <h4>${data.plate_text}</h4>
+                            <div class="progress mb-2">
+                                <div class="progress-bar bg-${confidenceColor}"
+                                     style="width: ${confidence}%">${confidence}%</div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // Add timestamp
+                if (data.timestamp) {
+                    platesHTML += `
+                        <div class="text-center mt-2">
+                            <small>Terdeteksi: ${new Date(data.timestamp).toLocaleTimeString()}</small>
+                        </div>
+                    `;
+                }
+
+                statusDiv.innerHTML = platesHTML;
             }
         }
 

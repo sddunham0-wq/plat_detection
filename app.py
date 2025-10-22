@@ -37,6 +37,7 @@ camera = None
 latest_detection = None
 all_detected_bboxes = []  # Simpan SEMUA bounding boxes untuk ditampilkan
 all_vehicle_bboxes = []  # ★ NEW: Simpan bounding boxes MOBIL (kotak besar)
+all_detected_plates = []  # ★ NEW: Store detected plates dengan text labels (bbox + text + confidence)
 detection_lock = threading.Lock()
 bboxes_lock = threading.Lock()  # ★ BUG FIX #1: Thread-safe protection untuk all_detected_bboxes
 
@@ -64,7 +65,7 @@ system_status = {
 # Tracking history untuk smooth bounding boxes
 from collections import deque
 vehicle_tracking_history = deque(maxlen=5)  # Simpan 5 frame terakhir untuk smoothing
-plate_tracking_history = deque(maxlen=3)    # Plate tracking lebih cepat respond
+plate_tracking_history = deque(maxlen=7)    # Plate tracking dengan smoothing lebih baik
 
 # ★ 2-MODEL DUAL DETECTION SYSTEM
 # Penjelasan SMK: Gunakan 2 model untuk deteksi lengkap
@@ -322,6 +323,71 @@ def calculate_iou(box1, box2):
 
     return intersection / union if union > 0 else 0.0
 
+def non_maximum_suppression(bboxes, iou_threshold=0.5):
+    """
+    Non-Maximum Suppression untuk filter overlapping bounding boxes
+
+    Penjelasan SMK: Seperti "pilih satu kotak terbaik dari yang overlap"
+    Kalau ada 3 kotak hijau menimpa di satu plat → ambil 1 yang terbesar/terbaik
+
+    Algorithm:
+    1. Sort boxes by area (largest first)
+    2. Loop each box:
+       - Keep box jika tidak overlap dengan box yang sudah dipilih
+       - Skip box jika overlap tinggi (IOU > threshold)
+
+    Args:
+        bboxes: List of (x,y,w,h) or (x,y,w,h,class,conf)
+        iou_threshold: Maximum IOU untuk consider sebagai overlap (0.5 = 50% overlap)
+
+    Returns:
+        Filtered list of non-overlapping bboxes
+    """
+    if not bboxes or len(bboxes) == 0:
+        return []
+
+    # If hanya 1 box, langsung return
+    if len(bboxes) == 1:
+        return bboxes
+
+    # Calculate area untuk setiap box
+    boxes_with_area = []
+    for bbox in bboxes:
+        x, y, w, h = bbox[:4]
+        area = w * h
+        boxes_with_area.append({
+            'bbox': bbox,
+            'area': area
+        })
+
+    # Sort by area (largest first) → prioritize larger detections
+    boxes_with_area.sort(key=lambda b: b['area'], reverse=True)
+
+    # NMS algorithm
+    keep = []
+
+    while boxes_with_area:
+        # Ambil box dengan area terbesar (index 0)
+        current = boxes_with_area.pop(0)
+        keep.append(current['bbox'])
+
+        # Filter remaining boxes: remove yang overlap tinggi dengan current
+        remaining = []
+        for other in boxes_with_area:
+            iou = calculate_iou(current['bbox'], other['bbox'])
+
+            # Keep box jika IOU rendah (tidak overlap banyak)
+            if iou < iou_threshold:
+                remaining.append(other)
+            else:
+                logger.debug(f"NMS: Suppressed box (IOU={iou:.2f} with kept box)")
+
+        boxes_with_area = remaining
+
+    logger.info(f"✨ NMS: {len(bboxes)} boxes → {len(keep)} non-overlapping boxes (threshold={iou_threshold})")
+
+    return keep
+
 def smooth_bounding_boxes(current_detections, history, iou_threshold=0.5):
     """
     Smooth bounding boxes using temporal filtering
@@ -363,16 +429,15 @@ def smooth_bounding_boxes(current_detections, history, iou_threshold=0.5):
         if matching_history:
             all_boxes = matching_history + [curr_det]
 
-            # ★ IMPROVED: Exponential Weighted Average
-            # Frame terbaru dapat bobot lebih besar (0.7)
-            # Frame lama dapat bobot lebih kecil (0.3 dibagi merata)
-            # Ini bikin tracking lebih responsive tapi tetap smooth
+            # ★ IMPROVED: Balanced Weighted Average
+            # Frame terbaru dan history balance (0.5/0.5)
+            # Lebih smooth dan stabil untuk tracking plat
             n_history = len(matching_history)
 
-            # Weight untuk frame current (70% importance)
-            current_weight = 0.7
-            # Sisa weight (30%) dibagi ke semua history frames
-            history_weight = 0.3 / n_history if n_history > 0 else 0
+            # Weight untuk frame current (50% importance)
+            current_weight = 0.5
+            # Sisa weight (50%) dibagi ke semua history frames
+            history_weight = 0.5 / n_history if n_history > 0 else 0
 
             # Weighted average x, y, w, h
             avg_x = int(curr_det[0] * current_weight + sum(b[0] * history_weight for b in matching_history))
@@ -515,8 +580,8 @@ def real_plate_detection(frame):
                         cls = int(box.cls[0].cpu().numpy())
                         conf = float(box.conf[0].cpu().numpy())
 
-                        # Filter hanya kendaraan (car=2, motorcycle=3, bus=5, truck=7)
-                        if cls in [2, 3, 5, 7]:
+                        # Filter hanya kendaraan (car=2, motorcycle=3 only)
+                        if cls in [2, 3]:
                             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                             x = int(x1)
                             y = int(y1)
@@ -535,11 +600,19 @@ def real_plate_detection(frame):
         # IOU threshold 0.3 = lebih toleran untuk object yang bergerak/berubah ukuran dikit
         smoothed_vehicles = smooth_bounding_boxes(vehicle_bboxes, vehicle_tracking_history, iou_threshold=0.3)
 
+        # ★ NEW OPTIMIZATION: Apply NMS untuk vehicle bboxes juga
+        # Penjelasan: Filter overlapping vehicle detections (mobil yang sama terdeteksi berkali-kali)
+        if smoothed_vehicles and len(smoothed_vehicles) > 1:
+            # Vehicle threshold 0.4 (sedikit lebih toleran karena mobil bisa bergerak)
+            nms_vehicles = non_maximum_suppression(smoothed_vehicles, iou_threshold=0.4)
+        else:
+            nms_vehicles = smoothed_vehicles
+
         # Simpan vehicle bboxes untuk drawing nanti
         with bboxes_lock:
-            all_vehicle_bboxes = smoothed_vehicles
+            all_vehicle_bboxes = nms_vehicles
 
-        logger.info(f"✅ Stage 1: {len(smoothed_vehicles)} vehicle(s) detected (smoothed from {len(vehicle_bboxes)} raw)")
+        logger.info(f"✅ Stage 1: {len(nms_vehicles)} vehicle(s) detected (NMS from {len(vehicle_bboxes)} raw)")
 
         # ★ STAGE 2: Detect PLAT dalam area mobil (kotak KECIL)
         # Penjelasan: Dalam setiap mobil yang terdetect, cari platnya
@@ -558,15 +631,78 @@ def real_plate_detection(frame):
 
         # ★ APPLY SMOOTHING untuk plate detections juga
         # Penjelasan: Kotak plat juga stabil, tidak jitter
-        # IOU threshold 0.25 = sangat toleran karena plat lebih kecil dan sensitif
+        # IOU threshold 0.40 = lebih ketat untuk stabilitas lebih baik
         if bboxes:
-            smoothed_plates = smooth_bounding_boxes(bboxes, plate_tracking_history, iou_threshold=0.25)
+            smoothed_plates = smooth_bounding_boxes(bboxes, plate_tracking_history, iou_threshold=0.40)
         else:
             smoothed_plates = []
 
+        # ★ NEW OPTIMIZATION: Apply Non-Maximum Suppression (NMS)
+        # Penjelasan SMK: Filter overlapping boxes dari multi-scale detection
+        # Hanya keep 1 box terbaik per plat → tidak ada kotak yang menimpa!
+        if smoothed_plates and len(smoothed_plates) > 1:
+            # NMS dengan IOU threshold 0.3 = 30% overlap (AGGRESSIVE filtering)
+            # Kalau 2 box overlap >30% → buang yang lebih kecil
+            # Threshold rendah untuk handle multi-scale detection yang overlap tinggi
+            nms_plates = non_maximum_suppression(smoothed_plates, iou_threshold=0.3)
+        else:
+            nms_plates = smoothed_plates
+
         # ★ BUG FIX #1: Thread-safe update ke global variable
         with bboxes_lock:
-            all_detected_bboxes = smoothed_plates if smoothed_plates else []
+            all_detected_bboxes = nms_plates if nms_plates else []
+
+        # ★ NEW: Process ALL detected plates untuk text labels
+        # Penjelasan: Loop semua plate yang terdeteksi, coba OCR setiap plat
+        # Update all_detected_plates dengan hasil OCR (text + confidence + bbox)
+        temp_plates = []
+        if nms_plates:
+            frame_h, frame_w = frame.shape[:2]
+            for idx, bbox in enumerate(nms_plates[:5]):  # Max 5 plates untuk performa
+                try:
+                    x, y, w, h = bbox
+                    # Quick validation
+                    if w < 70 or h < 20 or w * h < 2400:
+                        continue
+
+                    # Crop dengan margin 15%
+                    margin_x = int(w * 0.15)
+                    margin_y = int(h * 0.15)
+                    x1 = max(0, x - margin_x)
+                    y1 = max(0, y - margin_y)
+                    x2 = min(frame_w, x + w + margin_x)
+                    y2 = min(frame_h, y + h + margin_y)
+
+                    if x1 >= x2 or y1 >= y2:
+                        continue
+
+                    roi = frame[y1:y2, x1:x2]
+
+                    # ★ FIX: Use FULL PLATE for OCR (no cropping)
+                    # Try OCR on full plate
+                    plate_text, ocr_conf = ocr_processor.read_plate_with_confidence(roi)
+
+                    if plate_text and ocr_processor.is_valid_plate(plate_text) and ocr_conf >= 0.50:
+                        temp_plates.append({
+                            'text': plate_text,
+                            'confidence': ocr_conf,
+                            'bbox': [x, y, w, h]
+                        })
+                        logger.debug(f"✅ Plate {idx+1} OCR: {plate_text} ({ocr_conf:.2f})")
+                    else:
+                        # Fallback: Add bbox without text untuk labeling "PLAT 1", "PLAT 2"
+                        temp_plates.append({
+                            'text': '',
+                            'confidence': 0,
+                            'bbox': [x, y, w, h]
+                        })
+                except Exception as e:
+                    logger.debug(f"⚠️ Error processing plate {idx+1}: {e}")
+                    continue
+
+        # Update global all_detected_plates dengan thread safety
+        with bboxes_lock:
+            all_detected_plates = temp_plates
 
         if bboxes and len(bboxes) > 0:
             # Ambil plat TERBAIK (yang pertama, sudah sorted by confidence)
@@ -576,10 +712,10 @@ def real_plate_detection(frame):
 
             # ★ BUG FIX #5: Improve OCR area threshold dan validation
             # Plat Indonesia standar minimal ~200x60 pixels untuk OCR yang reliable
-            # Threshold sebelumnya (600px) terlalu kecil → banyak false positive
-            MIN_AREA_FOR_OCR = 1200  # ~60px x 20px minimum - IMPROVED for better OCR
-            MIN_WIDTH = 50  # Minimum width untuk plat yang valid
-            MIN_HEIGHT = 15  # Minimum height untuk plat yang valid
+            # Threshold ditingkatkan untuk OCR lebih akurat
+            MIN_AREA_FOR_OCR = 2400  # ~80px x 30px minimum - IMPROVED for better OCR
+            MIN_WIDTH = 70  # Minimum width untuk plat yang valid
+            MIN_HEIGHT = 20  # Minimum height untuk plat yang valid
             MIN_ASPECT_RATIO = 1.8  # Plat Indonesia biasanya ~3:1 aspect ratio (lowered from 2.0 to allow 1.94)
             MAX_ASPECT_RATIO = 6.0  # Maximum untuk filter noise
 
@@ -601,16 +737,32 @@ def real_plate_detection(frame):
                 logger.warning(f"⚠️ Invalid aspect ratio: {aspect_ratio:.2f} (expected {MIN_ASPECT_RATIO}-{MAX_ASPECT_RATIO})")
                 return None
 
-            # Step 2: Crop area plat
-            # ★ BUG FIX: Add bounds checking untuk prevent out-of-bounds error
+            # Step 2: Crop area plat WITH MARGIN
+            # ★ OPTIMIZATION: Add 15% margin around plate for better OCR context
+            # Penjelasan SMK: Kasih "ruang nafas" di sekitar plat agar OCR lebih akurat
+            # Margin membantu OCR detect edge characters dengan lebih baik
             frame_h, frame_w = frame.shape[:2]
 
-            # Validate coordinates
-            if x < 0 or y < 0 or x + w > frame_w or y + h > frame_h:
-                logger.warning(f"⚠️ Invalid bbox coordinates: ({x},{y},{w},{h}) for frame {frame_w}x{frame_h}")
+            # Calculate margin (15% of bbox size)
+            MARGIN_PERCENT = 0.15
+            margin_x = int(w * MARGIN_PERCENT)
+            margin_y = int(h * MARGIN_PERCENT)
+
+            # Apply margin dengan bounds checking
+            x1 = max(0, x - margin_x)
+            y1 = max(0, y - margin_y)
+            x2 = min(frame_w, x + w + margin_x)
+            y2 = min(frame_h, y + h + margin_y)
+
+            # Validate final coordinates
+            if x1 >= x2 or y1 >= y2:
+                logger.warning(f"⚠️ Invalid crop coordinates after margin: ({x1},{y1}) to ({x2},{y2})")
                 return None
 
-            roi = frame[y:y+h, x:x+w]
+            # Crop with margin
+            roi = frame[y1:y2, x1:x2]
+
+            logger.debug(f"🔍 Crop: original=({x},{y},{w},{h}), with_margin=({x1},{y1},{x2-x1},{y2-y1})")
 
             # Save cropped plate
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -628,25 +780,34 @@ def real_plate_detection(frame):
             cv2.imwrite(debug_path, roi)
             logger.info(f"💾 Full plate saved: {debug_path} (size: {w}x{h})")
 
-            # ★ IMPROVEMENT: Crop 60% bagian atas untuk OCR
-            # Alasan: Fokus ke BARIS UTAMA (nomor plat), buang BARIS TAHUN PAJAK
-            # Layout plat Indonesia:
-            #   - Baris 1 (atas 60%): B 1234 ABC ← yang penting untuk OCR
-            #   - Baris 2 (bawah 40%): 08-27 ← tahun pajak (noise untuk OCR)
-            CROP_RATIO = 0.60  # 60% bagian atas dengan safety margin
-            h_upper = int(h * CROP_RATIO)
-            roi_upper_only = roi[0:h_upper, :]  # Crop dari top ke 60%
+            # ★ FIX: DISABLE cropping 65% - gunakan FULL PLATE untuk OCR
+            # Alasan: Cropping malah merusak text, full plate lebih reliable
+            # OCR sudah cukup pintar untuk ignore baris bawah (tahun pajak)
+            # Plus: EasyOCR dengan preprocessing bagus bisa handle full plate
 
-            logger.debug(f"🔍 OCR input: upper 60% only ({roi_upper_only.shape[1]}x{roi_upper_only.shape[0]} from {w}x{h})")
+            logger.debug(f"🔍 OCR input: FULL PLATE ({roi.shape[1]}x{roi.shape[0]})")
 
-            # Step 4: OCR - BACA TEKS dari plat (HANYA dari baris atas!)
-            plate_text, ocr_confidence = ocr_processor.read_plate_with_confidence(roi_upper_only)
+            # ★ VALIDATION: Check brightness & contrast sebelum OCR
+            import numpy as np
+            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            mean_brightness = np.mean(gray)
+
+            # Skip jika terlalu gelap atau terlalu terang
+            if mean_brightness < 40 or mean_brightness > 220:
+                logger.warning(f"⚠️ Poor lighting condition: brightness={mean_brightness:.1f} (valid: 40-220)")
+                return None
+
+            # Step 4: OCR - BACA TEKS dari plat (FULL PLATE, bukan crop!)
+            plate_text, ocr_confidence = ocr_processor.read_plate_with_confidence(roi)
+
+            # ★ CONFIDENCE THRESHOLD: Filter hasil OCR berdasarkan confidence
+            MIN_OCR_CONFIDENCE = 0.50  # BALANCED 0.50 - reject garbage (<0.3) but allow valid plates (0.5-0.9)
 
             # Log hasil OCR
             if plate_text:
                 # ★ BUG FIX #6: Validate plate text sebelum return
                 # Pastikan hasil OCR adalah plat yang valid (bukan garbage)
-                if ocr_processor.is_valid_plate(plate_text):
+                if ocr_processor.is_valid_plate(plate_text) and ocr_confidence >= MIN_OCR_CONFIDENCE:
                     logger.info(f"✅ OCR SUCCESS: {plate_text} (confidence: {ocr_confidence:.2f})")
 
                     # Save SUCCESS result dengan annotasi + metadata
@@ -670,6 +831,9 @@ def real_plate_detection(frame):
                         'confidence': ocr_confidence,
                         'bbox': [x, y, w, h]
                     }
+                elif ocr_confidence < MIN_OCR_CONFIDENCE:
+                    logger.warning(f"⚠️ OCR confidence too low: {ocr_confidence:.2f} < {MIN_OCR_CONFIDENCE}")
+                    # Continue to fallback
                 else:
                     logger.warning(f"⚠️ OCR returned invalid plate format: {plate_text}")
                     # Continue to fallback
@@ -679,9 +843,9 @@ def real_plate_detection(frame):
             logger.warning(f"❌ Primary OCR FAILED - Size: {w}x{h}, Confidence: {ocr_confidence:.2f}")
 
             # Fallback: Try simple OCR tanpa strict validation
-            # ★ CONSISTENCY: Gunakan roi_upper_only (bukan roi) untuk fallback juga
+            # ★ FIX: Gunakan roi (full plate) untuk fallback juga
             try:
-                simple_text = ocr_processor.read_plate_text(roi_upper_only)
+                simple_text = ocr_processor.read_plate_text(roi)
 
                 if simple_text and len(simple_text) >= 3:
                     # Get real format confidence instead of hardcoded 0.5
@@ -783,27 +947,56 @@ def draw_detection_info(frame):
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, BLUE, 2)
                         logger.debug(f"🚗 Drew {vehicle_label} bbox: ({x},{y},{w},{h})")
 
-            # ★ STEP 2: Draw PLATE bboxes (kotak HIJAU kecil untuk plat)
+            # ★ STEP 2: Draw PLATE bboxes WITH TEXT LABELS (kotak HIJAU dengan label)
+            # Penjelasan SMK: Gambar kotak hijau + text plat di atasnya
             if all_detected_bboxes:
                 GREEN = (0, 255, 0)  # BGR format - Green untuk plat
-                valid_plate_bboxes = []
+                YELLOW = (0, 255, 255)  # BGR format - Yellow untuk label text
 
-                for bbox in all_detected_bboxes:
-                    x, y, w, h = bbox
+                for idx, bbox in enumerate(all_detected_bboxes, 1):
+                    x, y, w, h = bbox[:4]  # Support both (x,y,w,h) and (x,y,w,h,extras)
+
                     # Validate bbox masih dalam frame bounds
                     if x >= 0 and y >= 0 and x + w <= frame_w and y + h <= frame_h and w > 0 and h > 0:
-                        valid_plate_bboxes.append(bbox)
+                        # Draw green rectangle
+                        cv2.rectangle(frame, (x, y), (x+w, y+h), GREEN, 2)
+
+                        # ★ NEW: Draw plate label di atas bbox
+                        # Cari matching plate text dari all_detected_plates
+                        label_text = f"PLAT {idx}"  # Default label
+
+                        # Try to find matching detected plate text
+                        global all_detected_plates
+                        if all_detected_plates:
+                            for plate_info in all_detected_plates:
+                                plate_bbox = plate_info.get('bbox', [])
+                                if len(plate_bbox) >= 4:
+                                    px, py, pw, ph = plate_bbox[:4]
+                                    # Check if bbox matches (with tolerance)
+                                    if abs(x - px) < 10 and abs(y - py) < 10:
+                                        plate_text = plate_info.get('text', '')
+                                        confidence = plate_info.get('confidence', 0)
+                                        if plate_text:
+                                            label_text = f"{plate_text} ({confidence:.0%})"
+                                        break
+
+                        # Draw label background (semi-transparent black box)
+                        label_size = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+                        label_w, label_h = label_size
+
+                        # Background rectangle
+                        cv2.rectangle(frame,
+                                    (x, y - label_h - 10),
+                                    (x + label_w + 10, y),
+                                    (0, 0, 0), -1)  # Black filled
+
+                        # Text label
+                        cv2.putText(frame, label_text, (x + 5, y - 5),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, YELLOW, 2)
+
+                        logger.debug(f"✅ Drew plate bbox {idx}: {label_text} at ({x},{y},{w},{h})")
                     else:
                         logger.debug(f"Skipping invalid plate bbox: ({x},{y},{w},{h})")
-
-                # Draw plate bboxes dengan warna HIJAU
-                if valid_plate_bboxes:
-                    if USE_YOLO:
-                        # YOLO drawer - green boxes untuk plat
-                        plate_detector.draw(frame, valid_plate_bboxes, "PLAT")
-                    else:
-                        # Contour-based drawer - multi-color boxes
-                        plate_detector.draw_detections(frame, valid_plate_bboxes)
 
     except Exception as e:
         logger.error(f"Error drawing bboxes: {e}")
@@ -1008,22 +1201,43 @@ def api_latest_detection():
     """
     Penjelasan SMK: API untuk ambil data deteksi terbaru
     Seperti 'WhatsApp status' yang bisa dicek kapan saja
+    ★ UPDATE: Sekarang return SEMUA plat yang terdeteksi (all_plates)
     """
-    global latest_detection
+    global latest_detection, all_detected_plates
     with detection_lock:
+        # ★ NEW: Include all detected plates untuk status display
+        response_data = {
+            'system_status': system_status
+        }
+
+        # Add latest single detection (backwards compatibility)
         if latest_detection:
-            return jsonify({
-                'status': 'detected',
-                'plate_text': latest_detection['plate_text'],
-                'confidence': latest_detection['confidence'],
-                'timestamp': latest_detection['timestamp'],
-                'system_status': system_status
-            })
+            response_data['status'] = 'detected'
+            response_data['plate_text'] = latest_detection['plate_text']
+            response_data['confidence'] = latest_detection['confidence']
+            response_data['timestamp'] = latest_detection['timestamp']
         else:
-            return jsonify({
-                'status': 'no_detection',
-                'system_status': system_status
-            })
+            response_data['status'] = 'no_detection'
+
+        # ★ NEW: Add all detected plates dengan format yang siap ditampilkan
+        # Format: [{"text": "B 1234 ABC", "confidence": 0.75, "bbox": [x,y,w,h]}, ...]
+        with bboxes_lock:
+            response_data['all_plates'] = []
+            for idx, plate_info in enumerate(all_detected_plates, 1):
+                plate_data = {
+                    'index': idx,
+                    'text': plate_info.get('text', ''),
+                    'confidence': plate_info.get('confidence', 0),
+                    'bbox': plate_info.get('bbox', [0, 0, 0, 0]),
+                    'label': f"PLAT {idx}"  # Default label
+                }
+                # Override label jika ada text
+                if plate_data['text']:
+                    plate_data['label'] = f"{plate_data['text']} ({plate_data['confidence']:.0%})"
+
+                response_data['all_plates'].append(plate_data)
+
+        return jsonify(response_data)
 
 @app.route('/api/screenshot')
 def api_screenshot():
@@ -1438,6 +1652,15 @@ def detected_plates():
     Tampilkan semua plat yang berhasil dibaca OCR dengan detail
     """
     return render_template('detected_plates.html')
+
+@app.route('/gambarplat/<path:filename>')
+def serve_plate_image(filename):
+    """
+    Penjelasan SMK: Serve gambar plat dari folder gambarplat/
+    Seperti static file server untuk gambar
+    """
+    from flask import send_from_directory
+    return send_from_directory('gambarplat', filename)
 
 # =====================================================
 # CRUD OPERATIONS (Create, Read, Update, Delete)

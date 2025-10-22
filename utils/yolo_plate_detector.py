@@ -15,13 +15,13 @@ logger = logging.getLogger(__name__)
 class YOLOPlateDetector:
     """Detector plat nomor menggunakan YOLOv8"""
 
-    def __init__(self, model_path='models/best.pt', conf_threshold=0.25):
+    def __init__(self, model_path='models/best.pt', conf_threshold=0.35):
         """
         Initialize YOLO plate detector
 
         Args:
             model_path: Path ke YOLO model (.pt file)
-            conf_threshold: Confidence threshold (0.0-1.0)
+            conf_threshold: Confidence threshold (0.0-1.0) - INCREASED to 0.35 to reduce false positives
         """
         self.conf_threshold = conf_threshold
         self.model_path = model_path
