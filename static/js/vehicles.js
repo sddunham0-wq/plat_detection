@@ -53,8 +53,8 @@ $(document).ready(function() {
         const pin = $('#deletePin').val();
 
         // Validate PIN (simple check, default: 1234)
-        if (pin !== '1234') {
-            showToast('Invalid PIN! Default PIN is 1234', 'danger');
+        if (pin !== 'cctv1234') {
+            showToast('Invalid PIN! Default PIN is cctv1234', 'danger');
             return;
         }
 
