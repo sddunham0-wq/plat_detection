@@ -73,6 +73,8 @@ def get_recent_detections():
         return jsonify(detections)
     except Exception as e:
         return jsonify({'error': str(e)})
+    
+
 
 @app.route('/api/start_stream', methods=['POST'])
 def start_stream():
@@ -879,7 +881,7 @@ def delete_vehicle(vehicle_id):
     try:
         # Check PIN (simple protection)
         pin = request.form.get('pin', '')
-        if pin != '1234':  # Simple PIN check
+        if pin != 'cctv1234':  # Simple PIN check
             return jsonify({'success': False, 'message': 'Invalid PIN'})
 
         # Delete vehicle
@@ -1076,7 +1078,7 @@ def bulk_delete_access_log():
         pin = data.get('pin', '')
 
         # Validate PIN
-        if pin != '1234':
+        if pin != 'cctv1234':
             return jsonify({'success': False, 'error': 'Invalid PIN'}), 403
 
         # Validate IDs
@@ -1130,6 +1132,44 @@ def api_vehicles_stats():
         })
     except Exception as e:
         return jsonify({'error': str(e)})
+
+@app.route('/access-log/delete/<int:log_id>', methods=['POST'])
+def delete_access_log(log_id):
+    """Delete single access log record (with PIN protection)"""
+    if not MYSQL_AVAILABLE or not mysql_db:
+        return jsonify({'success': False, 'message': 'MySQL database not available'})
+
+    try:
+        # Check PIN (simple protection)
+        pin = request.form.get('pin', '')
+        if pin != 'cctv1234':
+            return jsonify({'success': False, 'message': 'Invalid PIN'})
+
+        # Delete access log record
+        with mysql_db.get_connection() as conn:
+            with conn.cursor() as cursor:
+                # Get log info first
+                cursor.execute("SELECT plate_number FROM access_log WHERE id = %s", (log_id,))
+                log = cursor.fetchone()
+
+                if not log:
+                    return jsonify({'success': False, 'message': 'Access log record not found'})
+
+                # Delete record
+                cursor.execute("DELETE FROM access_log WHERE id = %s", (log_id,))
+
+                if cursor.rowcount > 0:
+                    logger.info(f"✅ Access log deleted: {log['plate_number']} (ID: {log_id})")
+                    return jsonify({
+                        'success': True,
+                        'message': f"Access log for {log['plate_number']} deleted successfully"
+                    })
+                else:
+                    return jsonify({'success': False, 'message': 'Failed to delete access log record'})
+
+    except Exception as e:
+        logger.error(f"❌ Error deleting access log: {str(e)}")
+        return jsonify({'success': False, 'message': str(e)})
 
 @app.route('/api/access-log/stats')
 def api_access_log_stats():

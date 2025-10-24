@@ -208,7 +208,7 @@ $(document).ready(function() {
         const pin = $('#bulkDeletePin').val();
 
         if (pin !== 'cctv1234') {
-            showToast('Invalid PIN! Default PIN is cctv1234', 'danger');
+            showToast('Invalid PIN!', 'danger');
             return;
         }
 
