@@ -37,8 +37,8 @@ class CCTVConfig:
     FPS_LIMIT = 25             # Maksimal FPS untuk processing (increased for smoother streaming)
     BUFFER_SIZE = 12           # Maksimal frame di buffer (increased from 5 to 12 for RTSP stability)
 
-    # Frame skipping for performance (SAFE MODE - bbox persisted across frames)
-    ENABLE_FRAME_SKIPPING = True   # ENABLED with bbox caching for visibility
+    # Frame skipping for performance (DISABLED for better detection accuracy)
+    ENABLE_FRAME_SKIPPING = False   # DISABLED temporarily to ensure all frames are processed
     PROCESS_EVERY_N_FRAMES = 2     # Process every 2nd frame (50% skip, SAFE with caching)
     
     # RTSP connection settings - Enhanced untuk 192.168.1.203
@@ -74,9 +74,9 @@ class TesseractConfig:
     LANGUAGE = 'ind+eng'  # Indonesia + English untuk hasil terbaik
     FALLBACK_LANGUAGE = 'eng'  # Fallback jika Indonesia tidak tersedia
     
-    # Confidence threshold (0-100) - OPTIMIZED with pattern validation for quality
-    MIN_CONFIDENCE = 40        # Optimized to 40 (with pattern validation, can afford higher threshold for quality)
-    INDONESIAN_MIN_CONFIDENCE = 40  # Balanced threshold with intelligent filtering enabled
+    # Confidence threshold (0-100) - Lowered for better detection in challenging conditions
+    MIN_CONFIDENCE = 25        # Lowered to 25 for plates viewed through glass/distance
+    INDONESIAN_MIN_CONFIDENCE = 25  # Lower threshold for challenging lighting/angle conditions
     
     # Auto language detection - OPTIMIZED thresholds
     ENABLE_AUTO_LANGUAGE = True  # Enable auto-detection berdasarkan confidence
@@ -494,6 +494,92 @@ class PersonDetectionConfig:
     # Performance settings
     PERSON_DETECTION_PARALLEL = True     # Run person detection parallel dengan plate detection
     PERSON_FRAME_SKIP = 1                # Process every N frames (1 = every frame)
+
+class OverrideConfig:
+    """Pengaturan Manual Override Access Control System"""
+
+    # Enable/disable manual override features
+    ENABLE_MANUAL_OVERRIDE = True        # Enable manual override system
+
+    # PIN Protection
+    OVERRIDE_PIN = os.getenv('OVERRIDE_PIN', 'cctv1234')  # Default PIN (change in production!)
+    PIN_MAX_ATTEMPTS = 3                 # Maximum PIN attempts before lockout
+    PIN_LOCKOUT_DURATION = 300           # Lockout duration in seconds (5 minutes)
+
+    # Auto-approval thresholds
+    OCR_CONFIDENCE_THRESHOLD = 85.0      # Below 85% = manual review required (more sensitive)
+    AUTO_APPROVE_REGISTERED = True       # Auto-approve registered vehicles
+    AUTO_DENY_UNREGISTERED = False       # Auto-deny unregistered (False = manual review)
+
+    # Alert settings
+    ENABLE_AUDIO_ALERTS = True           # Enable audio notifications
+    ALERT_VOLUME = 0.8                   # Default volume (0.0 - 1.0)
+    AUTO_DISMISS_ALERTS = 5              # Auto-dismiss alerts after N seconds
+    MAX_VISIBLE_ALERTS = 3               # Maximum simultaneous visible alerts
+
+    # Sound files (relative to static/sounds/)
+    SOUND_ACCESS_GRANTED = 'access_granted.mp3'
+    SOUND_ACCESS_DENIED = 'access_denied.mp3'
+    SOUND_MANUAL_REQUIRED = 'manual_required.mp3'
+    SOUND_MANUAL_OVERRIDE = 'manual_override.mp3'
+
+    # Anti-spam settings
+    DUPLICATE_COOLDOWN_PERIOD = 30       # Seconds before allowing same plate alert
+    MIN_SOUND_INTERVAL = 2.0             # Minimum seconds between sounds
+    BATCH_TIMEOUT = 3.0                  # Seconds to wait before flushing batch
+    BATCH_SIZE = 3                       # Number of detections to trigger flush
+    BUSY_THRESHOLD = 20                  # Detections per hour to trigger busy mode
+
+    # Access durations
+    DURATIONS = {
+        'one-time': None,                # One-time access only
+        '1-hour': 3600,                  # 1 hour in seconds
+        '1-day': 86400,                  # 24 hours in seconds
+        'permanent': None                # Permanent access
+    }
+
+    # Manual override reasons
+    OVERRIDE_REASONS = [
+        'Guest Visit',
+        'Delivery/Service',
+        'Emergency',
+        'VIP',
+        'OCR Error',
+        'Other'
+    ]
+
+    # Queue settings
+    ENABLE_REVIEW_QUEUE = True           # Enable batch review queue
+    QUEUE_CONFIDENCE_THRESHOLD = 60.0    # Below 60% = add to queue
+    MAX_QUEUE_SIZE = 50                  # Maximum pending reviews
+    QUEUE_AUTO_EXPIRE = 3600             # Auto-expire queue items after 1 hour
+
+    # Quiet hours (no alerts except CRITICAL)
+    ENABLE_QUIET_HOURS = False           # Enable quiet hours
+    QUIET_START_TIME = '22:00'           # Quiet hours start time (HH:MM)
+    QUIET_END_TIME = '06:00'             # Quiet hours end time (HH:MM)
+
+    # Priority levels
+    PRIORITY_CRITICAL = 1                # Manual override required
+    PRIORITY_HIGH = 2                    # Access denied
+    PRIORITY_MEDIUM = 3                  # Access granted (registered)
+    PRIORITY_LOW = 4                     # Auto-processed
+
+    # Logging
+    LOG_ALL_OVERRIDES = True             # Log all manual override actions
+    LOG_REVIEW_QUEUE = True              # Log queue operations
+    ALERT_SUPERVISOR_ON_OVERRIDE = False # Send alert to supervisor (future feature)
+
+    # Temporary access settings
+    TEMP_ACCESS_AUTO_CLEANUP = True      # Auto-cleanup expired temporary access
+    TEMP_ACCESS_CLEANUP_INTERVAL = 3600  # Cleanup interval in seconds (1 hour)
+    MAX_TEMP_ACCESS_PER_DAY = 50         # Maximum temporary access grants per day
+
+    # UI settings
+    SHOW_CONFIDENCE_BADGE = True         # Show OCR confidence badge in UI
+    HIGHLIGHT_LOW_CONFIDENCE = True      # Highlight low confidence detections
+    SHOW_OVERRIDE_HISTORY = True         # Show override history in UI
+    MAX_HISTORY_ITEMS = 100              # Maximum history items to display
 
 class MultiCameraConfig:
     """Pengaturan multi-camera system"""

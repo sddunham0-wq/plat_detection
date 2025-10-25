@@ -1,0 +1,656 @@
+{% extends "layout.html" %}
+
+{% block title %}Access Override Control - CCTV Access Control{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Override Control Panel Styles */
+    .override-panel {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+
+    .pending-review-card {
+        background: white;
+        border-left: 4px solid #ffc107;
+        border-radius: 4px;
+        padding: 15px;
+        margin-bottom: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        transition: all 0.3s;
+    }
+
+    .pending-review-card:hover {
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        transform: translateY(-2px);
+    }
+
+    .pending-review-card.critical {
+        border-left-color: #dc3545;
+    }
+
+    .pending-review-card.high {
+        border-left-color: #fd7e14;
+    }
+
+    .pending-review-card.medium {
+        border-left-color: #ffc107;
+    }
+
+    .confidence-badge {
+        font-size: 0.9rem;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-weight: 600;
+    }
+
+    .confidence-low {
+        background: #dc3545;
+        color: white;
+    }
+
+    .confidence-medium {
+        background: #ffc107;
+        color: #333;
+    }
+
+    .confidence-high {
+        background: #28a745;
+        color: white;
+    }
+
+    .alert-container {
+        position: fixed;
+        top: 80px;
+        right: 20px;
+        z-index: 1050;
+        max-width: 400px;
+        width: 100%;
+    }
+
+    .alert-notification {
+        margin-bottom: 10px;
+        animation: slideInRight 0.3s ease;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    @keyframes slideInRight {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+
+    .alert-notification.alert-success {
+        border-left: 4px solid #28a745;
+    }
+
+    .alert-notification.alert-danger {
+        border-left: 4px solid #dc3545;
+    }
+
+    .alert-notification.alert-warning {
+        border-left: 4px solid #ffc107;
+    }
+
+    .stats-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+
+    .stats-card h3 {
+        font-size: 2.5rem;
+        font-weight: bold;
+        margin: 0;
+    }
+
+    .stats-card p {
+        margin: 5px 0 0 0;
+        opacity: 0.9;
+    }
+
+    .btn-override {
+        min-width: 100px;
+    }
+
+    .plate-preview {
+        max-width: 150px;
+        border-radius: 4px;
+        border: 2px solid #dee2e6;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #6c757d;
+    }
+
+    .empty-state i {
+        font-size: 4rem;
+        margin-bottom: 20px;
+        opacity: 0.3;
+    }
+
+    /* Settings Panel Styles */
+    .settings-panel {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+    }
+
+    .settings-panel h5 {
+        color: #495057;
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #e9ecef;
+    }
+
+    .form-check-input:checked {
+        background-color: #667eea;
+        border-color: #667eea;
+    }
+
+    .volume-slider {
+        width: 100%;
+    }
+
+    /* Recent Decisions */
+    .decision-item {
+        display: flex;
+        align-items: center;
+        padding: 10px;
+        border-bottom: 1px solid #e9ecef;
+    }
+
+    .decision-item:last-child {
+        border-bottom: none;
+    }
+
+    .decision-icon {
+        font-size: 1.5rem;
+        margin-right: 15px;
+    }
+
+    .decision-icon.approved {
+        color: #28a745;
+    }
+
+    .decision-icon.rejected {
+        color: #dc3545;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Header -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2><i class="bi bi-shield-check"></i> Access Override Control</h2>
+                    <p class="text-muted mb-0">Manual review and access control decisions</p>
+                </div>
+                <div>
+                    <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#settingsModal">
+                        <i class="bi bi-gear"></i> Alert Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card text-white bg-primary">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-subtitle mb-2">Pending Reviews</h6>
+                            <h3 class="card-title mb-0" id="pendingCount">{{ pending_reviews|length }}</h3>
+                        </div>
+                        <i class="bi bi-clipboard-check fs-1 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-success">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-subtitle mb-2">Approved Today</h6>
+                            <h3 class="card-title mb-0" id="approvedCount">{{ override_stats.manual_override_count or 0 }}</h3>
+                        </div>
+                        <i class="bi bi-check-circle-fill fs-1 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-danger">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-subtitle mb-2">Denied Today</h6>
+                            <h3 class="card-title mb-0" id="deniedCount">{{ override_stats.denied_count or 0 }}</h3>
+                        </div>
+                        <i class="bi bi-x-circle-fill fs-1 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-info">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-subtitle mb-2">Detections/Hour</h6>
+                            <h3 class="card-title mb-0" id="detectionRate">{{ override_stats.detections_per_hour or 0 }}</h3>
+                        </div>
+                        <i class="bi bi-speedometer2 fs-1 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content Row -->
+    <div class="row">
+        <!-- Pending Reviews Panel (Left) -->
+        <div class="col-md-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Pending Manual Reviews</h5>
+                </div>
+                <div class="card-body" id="pendingReviewsContainer" style="max-height: 600px; overflow-y: auto;">
+                    {% if pending_reviews %}
+                        {% for review in pending_reviews %}
+                        <div class="pending-review-card {{ review.priority|lower }}" data-review-id="{{ review.id }}">
+                            <div class="row align-items-center">
+                                <div class="col-md-2">
+                                    {% if review.image_url %}
+                                    <img src="{{ review.image_url }}" class="plate-preview" alt="Plate">
+                                    {% else %}
+                                    <div class="plate-preview d-flex align-items-center justify-content-center bg-light" style="height: 60px;">
+                                        <i class="bi bi-image text-muted"></i>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="d-flex align-items-center mb-2">
+                                        <h5 class="mb-0 me-3">{{ review.plate_number }}</h5>
+                                        <span class="badge {{ 'bg-danger' if review.priority == 'CRITICAL' else 'bg-warning text-dark' if review.priority == 'HIGH' else 'bg-info' }}">
+                                            {{ review.priority }}
+                                        </span>
+                                        <span class="confidence-badge confidence-{{ 'low' if review.ocr_confidence < 60 else 'medium' if review.ocr_confidence < 75 else 'high' }} ms-2">
+                                            {{ review.ocr_confidence }}% OCR
+                                        </span>
+                                    </div>
+                                    <small class="text-muted">
+                                        <i class="bi bi-clock"></i> {{ review.acces_time.strftime('%H:%M:%S') if review.acces_time else 'N/A' }}
+                                        {% if review.owner_name %}
+                                        | <i class="bi bi-person"></i> {{ review.owner_name }}
+                                        {% endif %}
+                                    </small>
+                                </div>
+                                <div class="col-md-4 text-end">
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        <button type="button" class="btn btn-outline-primary btn-edit-plate"
+                                                data-id="{{ review.id }}"
+                                                data-plate="{{ review.plate_number }}"
+                                                title="Edit Plate">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-success btn-approve btn-override"
+                                                data-id="{{ review.id }}"
+                                                data-plate="{{ review.plate_number }}"
+                                                title="Approve Access">
+                                            <i class="bi bi-check-lg"></i> Approve
+                                        </button>
+                                        <button type="button" class="btn btn-danger btn-reject btn-override"
+                                                data-id="{{ review.id }}"
+                                                data-plate="{{ review.plate_number }}"
+                                                title="Deny Access">
+                                            <i class="bi bi-x-lg"></i> Reject
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                    <div class="empty-state">
+                        <i class="bi bi-check-circle"></i>
+                        <h4>No Pending Reviews</h4>
+                        <p class="text-muted">All detections have been processed or are above confidence threshold</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Decisions Panel (Right) -->
+        <div class="col-md-4">
+            <div class="card shadow-sm mb-3">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0"><i class="bi bi-clock-history"></i> Recent Decisions</h5>
+                </div>
+                <div class="card-body" id="recentDecisionsContainer" style="max-height: 300px; overflow-y: auto;">
+                    <div class="empty-state">
+                        <i class="bi bi-list-check"></i>
+                        <p>No recent decisions</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Stats -->
+            <div class="card shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <h5 class="mb-0"><i class="bi bi-graph-up"></i> Session Statistics</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between">
+                            <span>Total Detections:</span>
+                            <strong id="statTotalDetections">{{ override_stats.total_detections or 0 }}</strong>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between">
+                            <span>Granted:</span>
+                            <strong class="text-success" id="statGranted">{{ override_stats.granted_count or 0 }}</strong>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between">
+                            <span>Denied:</span>
+                            <strong class="text-danger" id="statDenied">{{ override_stats.denied_count or 0 }}</strong>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between">
+                            <span>Manual Overrides:</span>
+                            <strong class="text-warning" id="statOverrides">{{ override_stats.manual_override_count or 0 }}</strong>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="d-flex justify-content-between">
+                            <span>Busy Mode:</span>
+                            <strong id="statBusyMode">
+                                {% if override_stats.is_busy %}
+                                <span class="badge bg-warning">Active</span>
+                                {% else %}
+                                <span class="badge bg-secondary">Inactive</span>
+                                {% endif %}
+                            </strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Alert Container (Fixed Position) -->
+<div class="alert-container" id="alertContainer">
+    <!-- Alerts will be dynamically added here -->
+</div>
+
+<!-- Edit Plate Modal -->
+<div class="modal fade" id="editPlateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-pencil"></i> Correct Plate Number</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editPlateForm">
+                    <input type="hidden" id="editDetectionId" name="detection_id">
+                    <div class="mb-3">
+                        <label class="form-label">Original Plate (OCR Result):</label>
+                        <input type="text" class="form-control" id="editOriginalPlate" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Corrected Plate Number:</label>
+                        <input type="text" class="form-control" id="editCorrectedPlate" placeholder="Enter correct plate number" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Reason:</label>
+                        <select class="form-select" id="editReason">
+                            {% for reason in override_config.OVERRIDE_REASONS %}
+                            <option value="{{ reason }}">{{ reason }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveCorrection">
+                    <i class="bi bi-check-lg"></i> Save Correction
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Override Decision Modal (PIN Protection) -->
+<div class="modal fade" id="overrideModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header" id="overrideModalHeader">
+                <h5 class="modal-title" id="overrideModalTitle"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="overrideForm">
+                    <input type="hidden" id="overrideDetectionId" name="detection_id">
+                    <input type="hidden" id="overridePlate" name="plate_number">
+                    <input type="hidden" id="overrideDecision" name="decision">
+                    <input type="hidden" id="overrideOriginalPlate" name="original_plate">
+
+                    <div class="mb-3">
+                        <strong>Plate Number:</strong>
+                        <p class="mb-0" id="overridePlateDisplay"></p>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Reason:</label>
+                        <select class="form-select" id="overrideReason">
+                            {% for reason in override_config.OVERRIDE_REASONS %}
+                            <option value="{{ reason }}">{{ reason }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3" id="durationGroup">
+                        <label class="form-label">Access Duration:</label>
+                        <select class="form-select" id="overrideDuration">
+                            <option value="one-time">One-time access</option>
+                            <option value="1-hour">1 Hour</option>
+                            <option value="1-day">1 Day</option>
+                            <option value="permanent">Permanent</option>
+                        </select>
+                    </div>
+
+                    <div class="alert alert-warning">
+                        <i class="bi bi-shield-lock"></i> <strong>Enter PIN to confirm:</strong>
+                        <input type="password" class="form-control mt-2" id="overridePin" placeholder="Enter PIN" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn" id="confirmOverride">Confirm</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal fade" id="settingsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-gear"></i> Alert Settings</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-panel">
+                    <h5><i class="bi bi-volume-up"></i> Sound Settings</h5>
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="settingEnableAudio"
+                                   {{ 'checked' if alert_settings.enable_audio else '' }}>
+                            <label class="form-check-label" for="settingEnableAudio">
+                                Enable Audio Alerts
+                            </label>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Volume:</label>
+                        <input type="range" class="form-range volume-slider" id="settingVolume"
+                               min="0" max="100" value="{{ (alert_settings.audio_volume * 100)|int }}">
+                        <small class="text-muted">Current: <span id="volumeDisplay">{{ (alert_settings.audio_volume * 100)|int }}%</span></small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Play sound for:</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="settingSoundDenied"
+                                   {{ 'checked' if alert_settings.sound_denied else '' }}>
+                            <label class="form-check-label" for="settingSoundDenied">
+                                Access Denied
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="settingSoundGrantedAuto"
+                                   {{ 'checked' if alert_settings.sound_granted_auto else '' }}>
+                            <label class="form-check-label" for="settingSoundGrantedAuto">
+                                Access Granted (Auto)
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="settingSoundGrantedManual"
+                                   {{ 'checked' if alert_settings.sound_granted_manual else '' }}>
+                            <label class="form-check-label" for="settingSoundGrantedManual">
+                                Access Granted (Manual Override)
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="settingSoundManualRequired"
+                                   {{ 'checked' if alert_settings.sound_manual_required else '' }}>
+                            <label class="form-check-label" for="settingSoundManualRequired">
+                                Manual Review Required
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-panel mt-3">
+                    <h5><i class="bi bi-bell"></i> Visual Alerts</h5>
+                    <div class="mb-3">
+                        <label class="form-label">Auto-dismiss after (seconds):</label>
+                        <input type="number" class="form-control" id="settingAutoDismiss"
+                               value="{{ alert_settings.auto_dismiss_seconds }}" min="1" max="30">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Max visible alerts:</label>
+                        <input type="number" class="form-control" id="settingMaxAlerts"
+                               value="{{ alert_settings.max_visible_alerts }}" min="1" max="10">
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="settingEnableGrouping"
+                                   {{ 'checked' if alert_settings.enable_grouping else '' }}>
+                            <label class="form-check-label" for="settingEnableGrouping">
+                                Group similar alerts (Anti-spam)
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-panel mt-3">
+                    <h5><i class="bi bi-filter"></i> Priority Filter</h5>
+                    <p class="text-muted small">Show alerts for these priority levels:</p>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="settingShowCritical"
+                               {{ 'checked' if alert_settings.show_critical else '' }}>
+                        <label class="form-check-label" for="settingShowCritical">
+                            <span class="badge bg-danger">CRITICAL</span> Manual Override Required
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="settingShowHigh"
+                               {{ 'checked' if alert_settings.show_high else '' }}>
+                        <label class="form-check-label" for="settingShowHigh">
+                            <span class="badge bg-warning text-dark">HIGH</span> Access Denied
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="settingShowMedium"
+                               {{ 'checked' if alert_settings.show_medium else '' }}>
+                        <label class="form-check-label" for="settingShowMedium">
+                            <span class="badge bg-info">MEDIUM</span> Access Granted (Registered)
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="settingShowLow"
+                               {{ 'checked' if alert_settings.show_low else '' }}>
+                        <label class="form-check-label" for="settingShowLow">
+                            <span class="badge bg-secondary">LOW</span> Auto-processed
+                        </label>
+                    </div>
+                </div>
+
+                <div class="settings-panel mt-3">
+                    <h5><i class="bi bi-moon"></i> Quiet Hours</h5>
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="settingEnableQuietHours"
+                                   {{ 'checked' if alert_settings.enable_quiet_hours else '' }}>
+                            <label class="form-check-label" for="settingEnableQuietHours">
+                                Enable Quiet Hours (mute non-critical alerts)
+                            </label>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label class="form-label">Start Time:</label>
+                            <input type="time" class="form-control" id="settingQuietStart"
+                                   value="{{ alert_settings.quiet_start_time }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">End Time:</label>
+                            <input type="time" class="form-control" id="settingQuietEnd"
+                                   value="{{ alert_settings.quiet_end_time }}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveSettings">
+                    <i class="bi bi-check-lg"></i> Save Settings
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/access_override.js') }}"></script>
+{% endblock %}

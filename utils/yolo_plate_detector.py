@@ -78,20 +78,20 @@ class YOLOPlateDetector:
     YOLOv8-based license plate detector yang akurat seperti object detection
     """
     
-    def __init__(self, confidence=0.5, streaming_mode=True, enable_deskew=True, enable_bbox_refinement=True):
+    def __init__(self, confidence=0.3, streaming_mode=True, enable_deskew=True, enable_bbox_refinement=True):
         """
         Initialize YOLO plate detector
 
         Args:
-            confidence: Confidence threshold for plate detection
+            confidence: Confidence threshold for plate detection (lowered to 0.3 for better detection)
             streaming_mode: Enable optimizations for real-time streaming
             enable_deskew: Enable image deskewing for tilted plates (default: True)
             enable_bbox_refinement: Enable bounding box refinement (default: True)
         """
         self.confidence = confidence
         self.streaming_mode = streaming_mode
-        self.enable_deskew = False
-        self.enable_bbox_refinement = False 
+        self.enable_deskew = enable_deskew  # Respect parameter value
+        self.enable_bbox_refinement = enable_bbox_refinement  # Respect parameter value 
         self.model = None
         self.enabled = False
         self.logger = logging.getLogger(__name__)
@@ -289,7 +289,7 @@ class YOLOPlateDetector:
             # Run YOLO inference with stable parameters for CCTV streaming
             results = self.model(
                 image,
-                conf=0.65,         # ✅ Naikkan confidence threshold
+                conf=self.confidence,  # Use configured confidence threshold
                 imgsz=1280,
                 iou=0.80,          # ✅ CRITICAL: Naikkan IOU untuk bbox stabil
                 max_det=5,         # ✅ Kurangi deteksi untuk fokus ke plat terbaik
@@ -357,27 +357,54 @@ class YOLOPlateDetector:
                             # Indonesian plates typical: ~400x100 pixels
                             # Prevent OCR from processing huge images (causes NO TEXT)
                             # ✅ FIXED: Relaxed ROI limits untuk Indonesian plates
-                                MAX_ROI_WIDTH = 800    # Increased from 400 (plat bisa lebih besar di CCTV dekat)
-                                MAX_ROI_HEIGHT = 300   # Increased from 150
+                            MAX_ROI_WIDTH = 800    # Increased from 400 (plat bisa lebih besar di CCTV dekat)
+                            MAX_ROI_HEIGHT = 300   # Increased from 150
 
-                                # Only limit if EXTREMELY large (prevent memory issues)
-                                if final_w > MAX_ROI_WIDTH or final_h > MAX_ROI_HEIGHT:
-                                    # ROI too large, scale down to reasonable size
-                                    scale = min(MAX_ROI_WIDTH / final_w, MAX_ROI_HEIGHT / final_h)
-                                    new_w = int(final_w * scale)
-                                    new_h = int(final_h * scale)
-                                    # Re-center bbox after scaling
-                                    new_x = final_x + (final_w - new_w) // 2
-                                    new_y = final_y + (final_h - new_h) // 2
-                                    final_x, final_y, final_w, final_h = new_x, new_y, new_w, new_h
-                                    self.logger.debug(f"ROI size limited: {final_w}x{final_h} (scale: {scale:.2f})")
+                            # Only limit if EXTREMELY large (prevent memory issues)
+                            if final_w > MAX_ROI_WIDTH or final_h > MAX_ROI_HEIGHT:
+                                # ROI too large, scale down to reasonable size
+                                scale = min(MAX_ROI_WIDTH / final_w, MAX_ROI_HEIGHT / final_h)
+                                new_w = int(final_w * scale)
+                                new_h = int(final_h * scale)
+                                # Re-center bbox after scaling
+                                new_x = final_x + (final_w - new_w) // 2
+                                new_y = final_y + (final_h - new_h) // 2
+                                final_x, final_y, final_w, final_h = new_x, new_y, new_w, new_h
+                                self.logger.debug(f"ROI size limited: {final_w}x{final_h} (scale: {scale:.2f})")
 
                             # Extract ROI and run OCR
                             try:
                                 plate_roi = image[final_y:final_y + final_h, final_x:final_x + final_w]
 
+                                # ✅ CRITICAL: Validate ROI before OCR
+                                if plate_roi.size == 0:
+                                    self.logger.warning(f"❌ SKIP: Empty ROI (size=0)")
+                                    continue
+
+                                # ✅ CRITICAL: Check minimum ROI size for OCR
+                                roi_h, roi_w = plate_roi.shape[:2]
+                                if roi_h < 20 or roi_w < 40:
+                                    self.logger.warning(f"❌ SKIP: ROI too small ({roi_w}x{roi_h}) - minimum 40x20")
+                                    continue
+
+                                # ✅ ACCURACY FIX: Validate aspect ratio for Indonesian plates
+                                # Indonesian plates: aspect ratio 3:1 to 5:1 (typically 4:1)
+                                # If too narrow → might be missing prefix/suffix
+                                aspect_ratio = roi_w / roi_h if roi_h > 0 else 0
+                                if aspect_ratio < 2.5:
+                                    self.logger.warning(f"⚠️ SUSPICIOUS: ROI too narrow (aspect {aspect_ratio:.2f}) - might be missing prefix letter")
+                                    # Try to expand ROI horizontally by 20%
+                                    extra_w = int(roi_w * 0.2)
+                                    new_x = max(0, final_x - extra_w)
+                                    new_w = min(image.shape[1] - new_x, final_w + 2 * extra_w)
+                                    # Re-extract with expanded width
+                                    plate_roi = image[final_y:final_y + final_h, new_x:new_x + new_w]
+                                    roi_h, roi_w = plate_roi.shape[:2]
+                                    aspect_ratio = roi_w / roi_h if roi_h > 0 else 0
+                                    self.logger.info(f"✅ ROI expanded horizontally: new aspect {aspect_ratio:.2f}, size {roi_w}x{roi_h}")
+
                                 # ✅ DEBUG: Log ROI info
-                                self.logger.info(f"🔍 ROI extracted: size={plate_roi.shape if plate_roi.size > 0 else 'EMPTY'}, bbox=({final_x},{final_y},{final_w},{final_h})")
+                                self.logger.info(f"🔍 ROI extracted: size={plate_roi.shape if plate_roi.size > 0 else 'EMPTY'}, bbox=({final_x},{final_y},{final_w},{final_h}), aspect={aspect_ratio:.2f}")
 
                                 # ✅ DEBUG: Save ROI for visual inspection
                                 # Debug image saving DISABLED to prevent file accumulation
@@ -542,6 +569,8 @@ class YOLOPlateDetector:
                     if text2:
                         conf2 = self._calculate_ocr_confidence(text2)
                         text2 = self._apply_character_corrections(text2)
+                        # ✅ ACCURACY FIX: Validate Indonesian plate pattern
+                        text2, conf2 = self._validate_indonesian_plate_pattern(text2, conf2)
                         if self.validator:
                             is_valid, boost, corrected = self.validator.validate(text2)
                             if is_valid:
@@ -762,10 +791,16 @@ class YOLOPlateDetector:
         # Still effective for noise reduction with much better performance
         denoised = cv2.GaussianBlur(enhanced, (3, 3), 0)
 
+        # ✅ ACCURACY FIX: Add sharpening for better character clarity
+        # Helps distinguish similar characters like 3 vs 8, B vs 8
+        # Method: Unsharp mask (original + (original - blurred) * amount)
+        gaussian_blur = cv2.GaussianBlur(denoised, (0, 0), 1.5)
+        sharpened = cv2.addWeighted(denoised, 1.3, gaussian_blur, -0.3, 0)
+
         # ✅ ENHANCED: Adaptive thresholding with optimized parameters
         # blockSize=13 (tuned for CCTV conditions)
         binary = cv2.adaptiveThreshold(
-            denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 13, 3
+            sharpened, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 13, 3
         )
 
         # ⚡ OPTIMIZED: Minimal morphology for speed
@@ -810,13 +845,73 @@ class YOLOPlateDetector:
 
         return binary
 
+    def _validate_indonesian_plate_pattern(self, text: str, confidence: float) -> tuple:
+        """
+        Validate Indonesian plate pattern and detect missing prefix
+        Indonesian pattern: [1-2 letters][3-4 digits][2-3 letters]
+        Example: B1263EZU, F1818HGU, D123ABC
+
+        Returns:
+            tuple: (corrected_text, adjusted_confidence)
+        """
+        if not text or len(text) < 4:
+            return text, confidence
+
+        import re
+
+        # ✅ Indonesian plate patterns
+        # Standard format: [A-Z]{1,2} [0-9]{3,4} [A-Z]{2,3}
+        # Without spaces: [A-Z]{1,2}[0-9]{3,4}[A-Z]{2,3}
+        valid_pattern = r'^[A-Z]{1,2}\s?\d{3,4}\s?[A-Z]{2,3}$'
+
+        # Check if text matches valid pattern
+        if re.match(valid_pattern, text):
+            self.logger.debug(f"✅ Valid Indonesian plate pattern: '{text}'")
+            return text, confidence
+
+        # ✅ ACCURACY FIX: Detect missing prefix (starts with digit)
+        # Pattern: 1268EZU → Missing prefix 'B' → B1268EZU
+        if text[0].isdigit():
+            self.logger.warning(f"⚠️ INVALID PATTERN: Plate starts with digit '{text}' - missing prefix letter!")
+
+            # Common Indonesian regional codes (ordered by frequency)
+            common_prefixes = ['B', 'D', 'F', 'N', 'T', 'L', 'A', 'E', 'K', 'H']
+
+            # Try prepending common prefixes
+            # For now, use 'B' as default (most common in Jakarta/West Java)
+            corrected_text = 'B' + text
+
+            # Apply confidence penalty for suspicious pattern
+            adjusted_confidence = confidence * 0.6  # 40% penalty for missing prefix
+
+            self.logger.info(f"✅ CORRECTED: '{text}' → '{corrected_text}' (confidence {adjusted_confidence:.1f}%)")
+            return corrected_text, adjusted_confidence
+
+        # ✅ Check for digit in suffix (should be letters)
+        # Pattern: B12638ZU → '8' in suffix should be 'B' or 'E'
+        parts = re.match(r'^([A-Z]{1,2})(\d{3,4})(.*)$', text)
+        if parts:
+            prefix, digits, suffix = parts.groups()
+            if suffix and any(c.isdigit() for c in suffix):
+                self.logger.warning(f"⚠️ SUSPICIOUS: Digit in suffix '{suffix}' - should be letters only")
+                # Confidence penalty for suspicious suffix
+                confidence *= 0.8
+
+        # Pattern doesn't match and no obvious fix
+        self.logger.warning(f"⚠️ INVALID PATTERN: '{text}' doesn't match Indonesian plate format")
+        confidence *= 0.7  # 30% penalty for invalid pattern
+
+        return text, confidence
+
     def _apply_character_corrections(self, text: str) -> str:
         """
         Apply common OCR character corrections for Indonesian plates
+        Enhanced with 3↔8 digit confusion handling
         """
         if not text:
             return text
 
+        # ✅ ACCURACY FIX: Added 3↔8 confusion rules
         corrections = {
             'O': '0',  # O -> 0
             'I': '1',  # I -> 1 (in numbers)
@@ -830,25 +925,35 @@ class YOLOPlateDetector:
         for i, char in enumerate(corrected):
             # First 1-2 chars should be letters (regional code)
             if i < 2:
-                if char in ['0', '1', '5', '2']:
+                if char in ['0', '1', '5', '2', '8', '3']:
                     # Numbers in regional code position - try to fix
                     if char == '0':
-                        corrected[i] = 'D'  # Common mistake
+                        corrected[i] = 'D'  # Common mistake D->0
                     elif char == '1':
-                        corrected[i] = 'I' if i == 1 else 'L'
-            # Middle chars should be numbers
+                        corrected[i] = 'I' if i == 1 else 'L'  # 1->I or L
+                    elif char == '8':
+                        corrected[i] = 'B'  # ✅ NEW: Common mistake B->8
+                    elif char == '3':
+                        corrected[i] = 'B'  # ✅ NEW: Less common B->3
+            # Middle chars should be numbers (plate number section)
             elif 2 <= i < len(corrected) - 2:
                 if char in corrections:
                     corrected[i] = corrections[char]
-            # Last 2-3 chars should be letters
+                # ✅ NEW: Handle 3↔8 confusion based on context
+                # Keep as is for now (conservative approach)
+            # Last 2-3 chars should be letters (area code)
             else:
-                if char in ['0', '5', '2']:
+                if char in ['0', '5', '2', '8', '3']:
                     if char == '0':
-                        corrected[i] = 'O'
+                        corrected[i] = 'O'  # 0->O in suffix
                     elif char == '5':
-                        corrected[i] = 'S'
+                        corrected[i] = 'S'  # 5->S in suffix
                     elif char == '2':
-                        corrected[i] = 'Z'
+                        corrected[i] = 'Z'  # 2->Z in suffix
+                    elif char == '8':
+                        corrected[i] = 'B'  # ✅ NEW: 8->B in suffix (common)
+                    elif char == '3':
+                        corrected[i] = 'E'  # ✅ NEW: 3->E in suffix (possible)
 
         return ''.join(corrected)
     
@@ -900,22 +1005,26 @@ class YOLOPlateDetector:
         image_area = img_height * img_width
         size_ratio = bbox_area / image_area
 
-        # ✅ CRITICAL FIX: CONSERVATIVE expansion (50% reduction from before)
-        # YOLO confidence 55% already gives accurate bbox, minimal expansion needed
-        # Far away (small bbox) = modest expansion to capture full plate
-        # Close up (large bbox) = minimal expansion, bbox already accurate
+        # ✅ ACCURACY FIX: INCREASED expansion untuk capture full plate (especially prefix letters)
+        # Problem: Missing prefix letter 'B' in OCR (B1263EZU → 1268EZU)
+        # Solution: Increase horizontal padding to ensure full plate capture
+        # Vertical padding juga ditingkatkan untuk consistency
         if size_ratio < 0.01:
-            expansion_ratio = 0.02  # ✅ Reduced 71% (dari 0.07)
+            expansion_h_ratio = 0.08  # ✅ Increased 4x (from 0.02) - capture full height
+            expansion_w_ratio = 0.15  # ✅ Increased 7.5x (from 0.02) - capture prefix letters
         elif size_ratio < 0.03:
-            expansion_ratio = 0.015  # ✅ Reduced 70% (dari 0.05)
+            expansion_h_ratio = 0.06  # ✅ Increased 4x (from 0.015)
+            expansion_w_ratio = 0.13  # ✅ Increased 8.6x (from 0.015)
         elif size_ratio < 0.10:
-            expansion_ratio = 0.01   # ✅ Reduced 67% (dari 0.03)
+            expansion_h_ratio = 0.05  # ✅ Increased 5x (from 0.01)
+            expansion_w_ratio = 0.12  # ✅ Increased 12x (from 0.01)
         else:
-            expansion_ratio = 0.005  # ✅ Reduced 75% (dari 0.02)
+            expansion_h_ratio = 0.03  # ✅ Increased 6x (from 0.005)
+            expansion_w_ratio = 0.10  # ✅ Increased 20x (from 0.005)
 
-        # Calculate expansion pixels
-        expand_w = int(w * expansion_ratio)
-        expand_h = int(h * expansion_ratio)
+        # Calculate expansion pixels with MORE horizontal padding
+        expand_w = int(w * expansion_w_ratio)
+        expand_h = int(h * expansion_h_ratio)
 
         # Apply expansion
         x_expanded = max(0, x - expand_w)

@@ -570,6 +570,374 @@ class MySQLPlateDatabase:
         except Exception as e:
             self.logger.error(f"Error closing connections: {str(e)}")
 
+    # ==================== MANUAL OVERRIDE METHODS ====================
+
+    def log_manual_override(
+        self,
+        detection_id: Optional[int],
+        original_plate: str,
+        corrected_plate: Optional[str],
+        original_decision: str,
+        override_decision: str,
+        reason: str,
+        operator_pin: str,
+        operator_name: str = 'operator',
+        duration: str = 'one-time'
+    ) -> Optional[int]:
+        """
+        Log manual override action
+
+        Args:
+            detection_id: ID of access_log entry (if exists)
+            original_plate: Original OCR result
+            corrected_plate: Corrected plate number
+            original_decision: Original decision (granted/denied/pending)
+            override_decision: Override decision (approved/rejected)
+            reason: Reason for override
+            operator_pin: Operator PIN
+            operator_name: Operator name
+            duration: Access duration
+
+        Returns:
+            Override record ID atau None jika gagal
+        """
+        try:
+            from config import OverrideConfig
+            from datetime import timedelta
+
+            # Calculate expiry time
+            expire_at = None
+            if duration in OverrideConfig.DURATIONS and OverrideConfig.DURATIONS[duration]:
+                expire_at = datetime.now() + timedelta(seconds=OverrideConfig.DURATIONS[duration])
+
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        INSERT INTO manual_overrides
+                        (detection_id, original_plate, corrected_plate, original_decision,
+                         override_decision, reason, operator_pin, operator_name, duration, expire_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (detection_id, original_plate, corrected_plate, original_decision,
+                          override_decision, reason, operator_pin, operator_name, duration, expire_at))
+
+                    override_id = cursor.lastrowid
+                    self.logger.info(f"✅ Manual override logged: {corrected_plate or original_plate} - {override_decision}")
+                    return override_id
+
+        except Exception as e:
+            self.logger.error(f"❌ Error logging manual override: {str(e)}")
+            return None
+
+    def grant_temporary_access(
+        self,
+        plate_number: str,
+        granted_by: str,
+        reason: str,
+        duration: str = 'one-time'
+    ) -> bool:
+        """
+        Grant temporary access untuk plate number
+
+        Args:
+            plate_number: License plate number
+            granted_by: Who granted access
+            reason: Reason for temporary access
+            duration: Access duration (one-time, 1-hour, 1-day, permanent)
+
+        Returns:
+            True if successful
+        """
+        try:
+            from config import OverrideConfig
+            from datetime import timedelta
+
+            # Calculate expiry time
+            expire_at = None
+            if duration in OverrideConfig.DURATIONS and OverrideConfig.DURATIONS[duration]:
+                expire_at = datetime.now() + timedelta(seconds=OverrideConfig.DURATIONS[duration])
+
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    # Insert or update temporary access
+                    cursor.execute("""
+                        INSERT INTO temporary_access
+                        (plate_number, granted_by, reason, duration, expire_at, is_active)
+                        VALUES (%s, %s, %s, %s, %s, TRUE)
+                        ON DUPLICATE KEY UPDATE
+                            granted_by = VALUES(granted_by),
+                            reason = VALUES(reason),
+                            duration = VALUES(duration),
+                            expire_at = VALUES(expire_at),
+                            granted_at = CURRENT_TIMESTAMP,
+                            is_active = TRUE,
+                            access_count = 0
+                    """, (plate_number, granted_by, reason, duration, expire_at))
+
+                    self.logger.info(f"✅ Temporary access granted: {plate_number} ({duration})")
+                    return True
+
+        except Exception as e:
+            self.logger.error(f"❌ Error granting temporary access: {str(e)}")
+            return False
+
+    def check_temporary_access(self, plate_number: str) -> tuple[bool, Optional[str]]:
+        """
+        Check if plate has valid temporary access
+
+        Args:
+            plate_number: License plate number
+
+        Returns:
+            (has_access, reason)
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT expire_at, duration, access_count, reason
+                        FROM temporary_access
+                        WHERE plate_number = %s AND is_active = TRUE
+                        LIMIT 1
+                    """, (plate_number,))
+
+                    result = cursor.fetchone()
+
+                    if not result:
+                        return False, None
+
+                    expire_at = result.get('expire_at')
+                    duration = result.get('duration')
+                    access_count = result.get('access_count', 0)
+                    reason = result.get('reason')
+
+                    # Check validity
+                    now = datetime.now()
+
+                    # Permanent access
+                    if duration == 'permanent':
+                        # Update usage
+                        cursor.execute("""
+                            UPDATE temporary_access
+                            SET access_count = access_count + 1,
+                                last_access = NOW()
+                            WHERE plate_number = %s
+                        """, (plate_number,))
+                        return True, reason
+
+                    # One-time access
+                    if duration == 'one-time':
+                        if access_count == 0:
+                            # Grant access and mark as used
+                            cursor.execute("""
+                                UPDATE temporary_access
+                                SET access_count = 1,
+                                    last_access = NOW(),
+                                    is_active = FALSE
+                                WHERE plate_number = %s
+                            """, (plate_number,))
+                            return True, reason
+                        else:
+                            return False, None
+
+                    # Time-based access
+                    if expire_at and now < expire_at:
+                        # Update usage
+                        cursor.execute("""
+                            UPDATE temporary_access
+                            SET access_count = access_count + 1,
+                                last_access = NOW()
+                            WHERE plate_number = %s
+                        """, (plate_number,))
+                        return True, reason
+                    else:
+                        # Expired - deactivate
+                        cursor.execute("""
+                            UPDATE temporary_access
+                            SET is_active = FALSE
+                            WHERE plate_number = %s
+                        """, (plate_number,))
+                        return False, None
+
+        except Exception as e:
+            self.logger.error(f"❌ Error checking temporary access: {str(e)}")
+            return False, None
+
+    def get_pending_reviews(self, limit: int = 50) -> List[Dict]:
+        """
+        Get detections yang membutuhkan manual review
+
+        Args:
+            limit: Maximum number of results
+
+        Returns:
+            List of pending review detections
+        """
+        try:
+            from config import OverrideConfig
+
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT
+                            al.id,
+                            al.plate_number,
+                            al.ocr_confidence,
+                            al.status,
+                            al.acces_time,
+                            al.image_url,
+                            v.owner_name,
+                            v.vehicle_type,
+                            CASE
+                                WHEN al.ocr_confidence < %s THEN 'CRITICAL'
+                                WHEN al.ocr_confidence < %s THEN 'HIGH'
+                                ELSE 'MEDIUM'
+                            END as priority
+                        FROM access_log al
+                        LEFT JOIN vehicles v ON al.vehicle_id = v.id
+                        WHERE al.manual_override = FALSE
+                            AND al.ocr_confidence < %s
+                            AND al.acces_time >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+                        ORDER BY
+                            CASE
+                                WHEN al.ocr_confidence < %s THEN 1
+                                WHEN al.ocr_confidence < %s THEN 2
+                                ELSE 3
+                            END,
+                            al.acces_time DESC
+                        LIMIT %s
+                    """, (
+                        OverrideConfig.QUEUE_CONFIDENCE_THRESHOLD,
+                        OverrideConfig.OCR_CONFIDENCE_THRESHOLD,
+                        OverrideConfig.OCR_CONFIDENCE_THRESHOLD,
+                        OverrideConfig.QUEUE_CONFIDENCE_THRESHOLD,
+                        OverrideConfig.OCR_CONFIDENCE_THRESHOLD,
+                        limit
+                    ))
+
+                    return cursor.fetchall()
+
+        except Exception as e:
+            self.logger.error(f"❌ Error getting pending reviews: {str(e)}")
+            return []
+
+    def get_alert_settings(self, user_id: str = 'default') -> Dict:
+        """
+        Get alert settings untuk user
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            Alert settings dict
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT * FROM alert_settings
+                        WHERE user_id = %s
+                        LIMIT 1
+                    """, (user_id,))
+
+                    result = cursor.fetchone()
+
+                    if result:
+                        return dict(result)
+                    else:
+                        # Return default settings
+                        from config import OverrideConfig
+                        return {
+                            'enable_audio': OverrideConfig.ENABLE_AUDIO_ALERTS,
+                            'audio_volume': OverrideConfig.ALERT_VOLUME,
+                            'sound_denied': True,
+                            'sound_granted_auto': False,
+                            'sound_granted_manual': True,
+                            'sound_manual_required': True,
+                            'auto_dismiss_seconds': OverrideConfig.AUTO_DISMISS_ALERTS,
+                            'max_visible_alerts': OverrideConfig.MAX_VISIBLE_ALERTS,
+                            'enable_grouping': True,
+                            'show_critical': True,
+                            'show_high': True,
+                            'show_medium': False,
+                            'show_low': False,
+                            'enable_quiet_hours': OverrideConfig.ENABLE_QUIET_HOURS,
+                            'quiet_start_time': OverrideConfig.QUIET_START_TIME,
+                            'quiet_end_time': OverrideConfig.QUIET_END_TIME,
+                            'enable_dnd': False
+                        }
+
+        except Exception as e:
+            self.logger.error(f"❌ Error getting alert settings: {str(e)}")
+            return {}
+
+    def save_alert_settings(self, user_id: str, settings: Dict) -> bool:
+        """
+        Save alert settings untuk user
+
+        Args:
+            user_id: User ID
+            settings: Settings dict
+
+        Returns:
+            True if successful
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        INSERT INTO alert_settings
+                        (user_id, enable_audio, audio_volume, sound_denied, sound_granted_auto,
+                         sound_granted_manual, sound_manual_required, auto_dismiss_seconds,
+                         max_visible_alerts, enable_grouping, show_critical, show_high,
+                         show_medium, show_low, enable_quiet_hours, quiet_start_time,
+                         quiet_end_time, enable_dnd)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON DUPLICATE KEY UPDATE
+                            enable_audio = VALUES(enable_audio),
+                            audio_volume = VALUES(audio_volume),
+                            sound_denied = VALUES(sound_denied),
+                            sound_granted_auto = VALUES(sound_granted_auto),
+                            sound_granted_manual = VALUES(sound_granted_manual),
+                            sound_manual_required = VALUES(sound_manual_required),
+                            auto_dismiss_seconds = VALUES(auto_dismiss_seconds),
+                            max_visible_alerts = VALUES(max_visible_alerts),
+                            enable_grouping = VALUES(enable_grouping),
+                            show_critical = VALUES(show_critical),
+                            show_high = VALUES(show_high),
+                            show_medium = VALUES(show_medium),
+                            show_low = VALUES(show_low),
+                            enable_quiet_hours = VALUES(enable_quiet_hours),
+                            quiet_start_time = VALUES(quiet_start_time),
+                            quiet_end_time = VALUES(quiet_end_time),
+                            enable_dnd = VALUES(enable_dnd)
+                    """, (
+                        user_id,
+                        settings.get('enable_audio', True),
+                        settings.get('audio_volume', 0.8),
+                        settings.get('sound_denied', True),
+                        settings.get('sound_granted_auto', False),
+                        settings.get('sound_granted_manual', True),
+                        settings.get('sound_manual_required', True),
+                        settings.get('auto_dismiss_seconds', 5),
+                        settings.get('max_visible_alerts', 3),
+                        settings.get('enable_grouping', True),
+                        settings.get('show_critical', True),
+                        settings.get('show_high', True),
+                        settings.get('show_medium', False),
+                        settings.get('show_low', False),
+                        settings.get('enable_quiet_hours', False),
+                        settings.get('quiet_start_time', '22:00:00'),
+                        settings.get('quiet_end_time', '06:00:00'),
+                        settings.get('enable_dnd', False)
+                    ))
+
+                    self.logger.info(f"✅ Alert settings saved for user: {user_id}")
+                    return True
+
+        except Exception as e:
+            self.logger.error(f"❌ Error saving alert settings: {str(e)}")
+            return False
+
 # Helper function untuk quick testing
 def test_mysql_connection():
     """Quick test MySQL connection"""

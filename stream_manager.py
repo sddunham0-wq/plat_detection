@@ -308,6 +308,123 @@ class HeadlessStreamManager:
             self.recent_detections[plate_text] = current_time
             return False
 
+    def _generate_plate_variants(self, plate_text: str) -> list:
+        """
+        Generate plate text variants to handle common OCR errors
+
+        Variants include:
+        - Space variations (with/without spaces)
+        - Common prefix additions (if starts with digit)
+        - Digit substitutions (3↔8, 0↔O, 1↔I)
+
+        Args:
+            plate_text: Original plate text from OCR
+
+        Returns:
+            list: List of plate text variants to try
+        """
+        variants = [plate_text]
+
+        # Remove spaces version
+        no_space = plate_text.replace(' ', '')
+        if no_space != plate_text:
+            variants.append(no_space)
+
+        # Add spaces in standard positions: [XX] [NNNN] [XXX]
+        # Example: B1263EZU → B 1263 EZU
+        import re
+        match = re.match(r'^([A-Z]{1,2})(\d{3,4})([A-Z]{2,3})$', no_space)
+        if match:
+            prefix, digits, suffix = match.groups()
+            spaced = f"{prefix} {digits} {suffix}"
+            if spaced not in variants:
+                variants.append(spaced)
+
+        # ✅ If starts with digit, try adding common prefixes
+        if no_space and no_space[0].isdigit():
+            common_prefixes = ['B', 'D', 'F', 'N', 'T', 'L']
+            for prefix in common_prefixes:
+                variant_with_prefix = prefix + no_space
+                if variant_with_prefix not in variants:
+                    variants.append(variant_with_prefix)
+                # Also try with spaces
+                match = re.match(r'^([A-Z]{1,2})(\d{3,4})([A-Z]{2,3})$', variant_with_prefix)
+                if match:
+                    p, d, s = match.groups()
+                    spaced_variant = f"{p} {d} {s}"
+                    if spaced_variant not in variants:
+                        variants.append(spaced_variant)
+
+        # ✅ Digit substitutions (3↔8 most common OCR error)
+        # Example: 1268 → try 1263, 1238, 1208
+        if '8' in no_space:
+            # Try replacing 8 with 3
+            variant_3 = no_space.replace('8', '3', 1)  # Replace first occurrence
+            if variant_3 not in variants:
+                variants.append(variant_3)
+                # Also try with spaces
+                match = re.match(r'^([A-Z]{1,2})(\d{3,4})([A-Z]{2,3})$', variant_3)
+                if match:
+                    p, d, s = match.groups()
+                    variants.append(f"{p} {d} {s}")
+
+        if '3' in no_space:
+            # Try replacing 3 with 8
+            variant_8 = no_space.replace('3', '8', 1)
+            if variant_8 not in variants:
+                variants.append(variant_8)
+                match = re.match(r'^([A-Z]{1,2})(\d{3,4})([A-Z]{2,3})$', variant_8)
+                if match:
+                    p, d, s = match.groups()
+                    variants.append(f"{p} {d} {s}")
+
+        self.logger.debug(f"Generated {len(variants)} variants for '{plate_text}': {variants[:5]}...")
+        return variants
+
+    def _check_plate_in_database(self, plate_text: str) -> bool:
+        """
+        Check if plate exists in vehicles database (MySQL) with fuzzy matching
+        Enhanced with variant generation for OCR errors
+
+        Args:
+            plate_text: Plate number to check
+
+        Returns:
+            bool: True if plate exists in database, False otherwise
+        """
+        try:
+            if self.use_mysql and self.mysql_db:
+                # Try exact match first
+                vehicle = self.mysql_db.check_vehicle_registered(plate_text)
+                if vehicle:
+                    self.logger.info(f"✅ Plate '{plate_text}' FOUND in database (exact match): {vehicle.get('owner_name', 'Unknown')}")
+                    return True
+
+                # ✅ ACCURACY FIX: Fuzzy matching when exact match fails
+                self.logger.info(f"⚠️ Exact match failed for '{plate_text}', trying fuzzy matching...")
+
+                # Generate plate variants to try
+                variants = self._generate_plate_variants(plate_text)
+
+                for variant in variants:
+                    if variant == plate_text:
+                        continue  # Skip original, already tried
+
+                    vehicle = self.mysql_db.check_vehicle_registered(variant)
+                    if vehicle:
+                        self.logger.info(f"✅ Plate '{plate_text}' FOUND via fuzzy match '{variant}': {vehicle.get('owner_name', 'Unknown')}")
+                        return True
+
+                self.logger.info(f"❌ Plate '{plate_text}' NOT FOUND in database (tried {len(variants)} variants)")
+                return False
+            else:
+                # No database connection, allow all plates (fallback)
+                self.logger.warning(f"⚠️ No database connection, allowing plate: '{plate_text}'")
+                return True
+        except Exception as e:
+            self.logger.error(f"Database check error for '{plate_text}': {e}")
+            return False  # On error, don't lock
+
     def _get_bbox_key(self, bbox: tuple) -> str:
         """
         Generate unique key for bounding box location with high tolerance

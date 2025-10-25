@@ -742,6 +742,35 @@ def on_multi_camera_detection(camera_id, detections):
 
 # ================== CRUD ROUTES FOR VEHICLES & ACCESS LOG ==================
 
+@app.route('/access-override')
+def access_override():
+    """Access Override Control Panel"""
+    if not MYSQL_AVAILABLE or not mysql_db:
+        flash('MySQL database not available. Please check configuration.', 'danger')
+        return redirect(url_for('index'))
+
+    try:
+        from config import OverrideConfig
+
+        # Get pending reviews
+        pending_reviews = mysql_db.get_pending_reviews(limit=20)
+
+        # Get alert settings
+        alert_settings = mysql_db.get_alert_settings('default')
+
+        # Get session stats
+        override_stats = alert_manager.get_session_stats()
+
+        return render_template('access_override.html',
+                             pending_reviews=pending_reviews,
+                             alert_settings=alert_settings,
+                             override_stats=override_stats,
+                             override_config=OverrideConfig)
+    except Exception as e:
+        logger.error(f"Error loading access override page: {str(e)}")
+        flash(f'Error loading override page: {str(e)}', 'danger')
+        return redirect(url_for('index'))
+
 @app.route('/vehicles')
 def vehicles():
     """Vehicles management page"""
@@ -1224,6 +1253,241 @@ def api_access_log_stats():
         return jsonify({'error': str(e)})
 
 # ================== END CRUD ROUTES ==================
+
+# ================== MANUAL OVERRIDE ROUTES ==================
+
+# Initialize alert manager
+from utils.alert_anti_spam import get_alert_manager, AlertEvent, AlertPriority
+
+alert_manager = get_alert_manager()
+
+@app.route('/api/override/correct-plate', methods=['POST'])
+def correct_plate_number():
+    """
+    Correct OCR result sebelum access decision
+    """
+    if not MYSQL_AVAILABLE or not mysql_db:
+        return jsonify({'success': False, 'error': 'MySQL not available'}), 503
+
+    try:
+        data = request.get_json()
+        detection_id = data.get('detection_id')
+        original_plate = data.get('original_plate')
+        corrected_plate = data.get('corrected_plate')
+        reason = data.get('reason', 'OCR Error')
+
+        # Validation
+        if not original_plate or not corrected_plate:
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+
+        # Update access_log dengan corrected plate
+        with mysql_db.get_connection() as conn:
+            with conn.cursor() as cursor:
+                if detection_id:
+                    cursor.execute("""
+                        UPDATE access_log
+                        SET plate_number = %s,
+                            manual_override = TRUE,
+                            override_reason = %s,
+                            reviewed_by = 'operator'
+                        WHERE id = %s
+                    """, (corrected_plate, reason, detection_id))
+
+        logger.info(f"✏️ Plate corrected: {original_plate} → {corrected_plate}")
+
+        return jsonify({
+            'success': True,
+            'message': 'Plate number corrected',
+            'original_plate': original_plate,
+            'corrected_plate': corrected_plate
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error correcting plate: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/override/access-decision', methods=['POST'])
+def manual_access_decision():
+    """
+    Manual approve/reject access dengan PIN protection
+    """
+    if not MYSQL_AVAILABLE or not mysql_db:
+        return jsonify({'success': False, 'error': 'MySQL not available'}), 503
+
+    try:
+        from config import OverrideConfig
+
+        data = request.get_json()
+        detection_id = data.get('detection_id')
+        plate_number = data.get('plate_number')
+        decision = data.get('decision')  # 'approved' or 'rejected'
+        pin = data.get('pin')
+        reason = data.get('reason', 'Manual Override')
+        duration = data.get('duration', 'one-time')
+        original_plate = data.get('original_plate')
+
+        # Validation
+        if not plate_number or not decision or not pin:
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+
+        if decision not in ['approved', 'rejected']:
+            return jsonify({'success': False, 'error': 'Invalid decision'}), 400
+
+        # Check PIN
+        if pin != OverrideConfig.OVERRIDE_PIN:
+            logger.warning(f"⚠️ Invalid PIN attempt for plate: {plate_number}")
+            return jsonify({'success': False, 'error': 'Invalid PIN'}), 403
+
+        # Log manual override
+        override_id = mysql_db.log_manual_override(
+            detection_id=detection_id,
+            original_plate=original_plate or plate_number,
+            corrected_plate=plate_number if original_plate else None,
+            original_decision='pending',
+            override_decision=decision,
+            reason=reason,
+            operator_pin=pin,
+            operator_name='operator',
+            duration=duration
+        )
+
+        # If approved, grant temporary access
+        if decision == 'approved':
+            mysql_db.grant_temporary_access(
+                plate_number=plate_number,
+                granted_by='operator',
+                reason=reason,
+                duration=duration
+            )
+
+            # Emit alert via WebSocket
+            socketio.emit('override_alert', {
+                'type': 'manual_approved',
+                'plate_number': plate_number,
+                'reason': reason,
+                'duration': duration,
+                'timestamp': time.time(),
+                'priority': 'CRITICAL'
+            })
+
+            logger.info(f"✅ Manual APPROVE: {plate_number} ({reason})")
+        else:
+            # Emit reject alert
+            socketio.emit('override_alert', {
+                'type': 'manual_rejected',
+                'plate_number': plate_number,
+                'reason': reason,
+                'timestamp': time.time(),
+                'priority': 'HIGH'
+            })
+
+            logger.info(f"❌ Manual REJECT: {plate_number} ({reason})")
+
+        return jsonify({
+            'success': True,
+            'message': f'Access {decision}',
+            'plate_number': plate_number,
+            'decision': decision,
+            'override_id': override_id
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error processing manual decision: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/override/pending-reviews', methods=['GET'])
+def get_pending_reviews():
+    """
+    Get list of detections yang butuh manual review
+    """
+    if not MYSQL_AVAILABLE or not mysql_db:
+        return jsonify({'success': False, 'error': 'MySQL not available'}), 503
+
+    try:
+        limit = request.args.get('limit', 50, type=int)
+
+        reviews = mysql_db.get_pending_reviews(limit=limit)
+
+        return jsonify({
+            'success': True,
+            'count': len(reviews),
+            'reviews': reviews
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error getting pending reviews: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/override/settings', methods=['GET'])
+def get_override_settings():
+    """
+    Get alert settings untuk user
+    """
+    if not MYSQL_AVAILABLE or not mysql_db:
+        return jsonify({'success': False, 'error': 'MySQL not available'}), 503
+
+    try:
+        user_id = request.args.get('user_id', 'default')
+
+        settings = mysql_db.get_alert_settings(user_id)
+
+        return jsonify({
+            'success': True,
+            'settings': settings
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error getting settings: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/override/settings', methods=['POST'])
+def save_override_settings():
+    """
+    Save alert settings untuk user
+    """
+    if not MYSQL_AVAILABLE or not mysql_db:
+        return jsonify({'success': False, 'error': 'MySQL not available'}), 503
+
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id', 'default')
+        settings = data.get('settings', {})
+
+        success = mysql_db.save_alert_settings(user_id, settings)
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Settings saved successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to save settings'
+            }), 500
+
+    except Exception as e:
+        logger.error(f"❌ Error saving settings: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/override/stats', methods=['GET'])
+def get_override_stats():
+    """
+    Get session statistics dari alert manager
+    """
+    try:
+        stats = alert_manager.get_session_stats()
+
+        return jsonify({
+            'success': True,
+            'stats': stats
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error getting override stats: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ================== END MANUAL OVERRIDE ROUTES ==================
 
 def stats_broadcaster():
     """Background thread untuk broadcast stats"""
