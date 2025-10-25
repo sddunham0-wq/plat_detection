@@ -1,125 +1,25 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <title>🚗 Sistem Manajemen Akses Kendaraan</title>
+    <title>Sistem Manajemen Akses Kendaraan</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <!-- Bootstrap CSS untuk styling yang cantik -->
+    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
 
-    <!-- Font Awesome untuk icons -->
+    <!-- Font Awesome Icons -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 
-    <!-- Custom CSS -->
-    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <!-- Custom CSS - Minimalist Design (NO inline CSS) -->
+    <link href="{{ url_for('static', filename='css/common.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/dashboard.css') }}" rel="stylesheet">
 
-    <style>
-        /* Inline CSS untuk penjelasan SMK */
-        body {
-            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-            min-height: 100vh;
-        }
-
-        .camera-container {
-            border: 3px solid #90CAF9;
-            border-radius: 15px;
-            overflow: hidden;
-            background: white;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-
-        .detection-panel {
-            background: linear-gradient(135deg, #1976D2 0%, #1565C0 100%);
-            color: white;
-            border-radius: 15px;
-            padding: 25px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-
-        .gate-status {
-            font-size: 1.3em;
-            font-weight: bold;
-            padding: 15px;
-            border-radius: 10px;
-            text-align: center;
-            transition: all 0.3s ease;
-        }
-
-        .gate-open {
-            background-color: #d4edda;
-            color: #155724;
-            border: 2px solid #c3e6cb;
-        }
-
-        .gate-closed {
-            background-color: #f8d7da;
-            color: #721c24;
-            border: 2px solid #f5c6cb;
-        }
-
-        .stats-card {
-            background: white;
-            color: #1565C0;
-            border-radius: 15px;
-            transition: transform 0.2s;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-            border: 2px solid #90CAF9;
-        }
-
-        .stats-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 4px 16px rgba(33, 150, 243, 0.3);
-        }
-
-        .stats-card h3 {
-            color: #1565C0;
-            font-weight: 700;
-        }
-
-        .stats-card h4 {
-            color: #2196F3;
-        }
-
-        .log-item {
-            border-left: 4px solid #2196F3;
-            background: white;
-            margin-bottom: 10px;
-            padding: 10px;
-            border-radius: 5px;
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-        }
-
-        .log-authorized { border-left-color: #28a745; }
-        .log-denied { border-left-color: #dc3545; }
-        .log-manual { border-left-color: #ffc107; }
-
-        .pulse {
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
-        }
-
-        .card {
-            border: 2px solid #90CAF9;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-        }
-
-        .card-title {
-            color: #1565C0;
-            font-weight: 600;
-        }
-    </style>
 </head>
 <body>
 
     <!-- Navigation Bar -->
-    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #1976D2 0%, #1565C0 100%);">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
             <a class="navbar-brand" href="/">
                 <i class="fas fa-car me-2"></i>Sistem Akses Kendaraan
@@ -139,9 +39,6 @@
                     </a>
                     <a class="nav-link" href="/access_logs">
                         <i class="fas fa-history me-1"></i>Log Akses
-                    </a>
-                    <a class="nav-link" href="/detected_plates">
-                        <i class="fas fa-images me-1"></i>Gallery Plat
                     </a>
                 </div>
             </div>
@@ -188,22 +85,22 @@
             <!-- Left Column: Camera Feed -->
             <div class="col-lg-8">
                 <div class="card mb-4">
-                    <div class="card-header bg-primary text-white">
+                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">
                             <i class="fas fa-video me-2"></i>Live Camera Feed
-                            <span id="cameraStatus" class="badge bg-danger ms-2">
-                                LIVE
-                            </span>
                         </h5>
+                        <span class="camera-status-badge">LIVE</span>
                     </div>
 
                     <div class="card-body">
+                        <!-- Penjelasan: Container untuk video feed camera -->
+                        <!-- CSS: .camera-container dan .camera-container img di dashboard.css -->
                         <div class="camera-container mb-3">
                             <img id="videoFeed"
                                  src="{{ url_for('video_feed') }}"
-                                 style="width: 100%; height: 450px; object-fit: cover;"
                                  alt="Camera Feed"
                                  onerror="handleCameraError(this)">
+                            
                         </div>
 
                         <div class="row">
@@ -219,7 +116,7 @@
                             </div>
                             <div class="col-md-4">
                                 <button class="btn btn-info w-100" onclick="refreshCamera()">
-                                    <i class="fas fa-refresh me-2"></i>Refresh Camera
+                                    <i class="fas fa-arrows-rotate me-2"></i>Refresh Camera
                                 </button>
                             </div>
                         </div>
@@ -282,7 +179,9 @@
                             <span class="badge bg-primary">{{ recent_logs|length }}</span>
                         </h6>
                     </div>
-                    <div class="card-body" style="max-height: 350px; overflow-y: auto;">
+                    <!-- Penjelasan: Panel scrollable untuk log akses terbaru -->
+                    <!-- CSS: max-height dan overflow di dashboard.css -->
+                    <div class="card-body ocr-results-panel">
                         {% if recent_logs %}
                             {% for log in recent_logs %}
                             <div class="log-item log-{{ log.access_status }}">
@@ -295,11 +194,11 @@
                                     </div>
                                     <div class="text-end">
                                         {% if log.access_status == 'authorized' %}
-                                            <span class="badge bg-success">AUTHORIZED</span>
+                                            <span class="badge bg-success" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">AUTHORIZED</span>
                                         {% elif log.access_status == 'denied' %}
-                                            <span class="badge bg-danger">DENIED</span>
+                                            <span class="badge bg-danger" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">DITOLAK</span>
                                         {% else %}
-                                            <span class="badge bg-warning">MANUAL</span>
+                                            <span class="badge bg-warning" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">MANUAL</span>
                                         {% endif %}
                                         <br><small class="text-muted">
                                             {{ log.detection_timestamp.strftime('%H:%M:%S') }}
@@ -330,9 +229,11 @@
                             <span class="badge bg-info" id="ocrCount">0</span>
                         </h6>
                     </div>
-                    <div class="card-body" id="ocrResultsPanel" style="max-height: 350px; overflow-y: auto;">
-                        <div class="text-center text-muted">
-                            <i class="fas fa-hourglass-half fa-2x mb-2"></i>
+                    <!-- Penjelasan: Panel untuk hasil OCR real-time -->
+                    <!-- CSS: .ocr-results-panel di dashboard.css -->
+                    <div class="card-body ocr-results-panel" id="ocrResultsPanel">
+                        <div class="empty-state">
+                            <i class="fas fa-hourglass-half"></i>
                             <p>Menunggu hasil OCR...</p>
                         </div>
                     </div>
@@ -341,10 +242,12 @@
         </div>
     </div>
 
-    <!-- Flash Messages Modal -->
+    <!-- Flash Messages Toast -->
+    <!-- Penjelasan: Notifikasi pop-up untuk system messages -->
+    <!-- CSS: .toast-container di common.css -->
     {% with messages = get_flashed_messages() %}
         {% if messages %}
-            <div class="position-fixed top-0 end-0 p-3" style="z-index: 1050">
+            <div class="toast-container">
                 {% for message in messages %}
                     <div class="toast show" role="alert">
                         <div class="toast-header">
@@ -634,7 +537,7 @@
                 gateIndicator.innerHTML = '<i class="fas fa-door-open"></i> Gate Open';
             } else {
                 gateDiv.className = 'gate-status gate-closed';
-                gateDiv.innerHTML = '<GATE TERTUTUP - Menunggu kendaraan...';
+                gateDiv.innerHTML = 'GATE TERTUTUP - Menunggu kendaraan...';
                 gateIndicator.className = 'badge bg-secondary p-2';
                 gateIndicator.innerHTML = '<i class="fas fa-door-closed"></i> Gate Closed';
             }
@@ -735,26 +638,32 @@
         }
 
         function showNotification(message, type = 'info') {
-            // Create toast notification
-            const toastContainer = document.querySelector('.position-fixed') || createToastContainer();
+            try {
+                // Create toast notification
+                const toastContainer = document.querySelector('.position-fixed') || createToastContainer();
 
-            const toast = document.createElement('div');
-            toast.className = 'toast show';
-            toast.innerHTML = `
-                <div class="toast-header">
-                    <i class="fas fa-info-circle text-${type} me-2"></i>
-                    <strong class="me-auto">System</strong>
-                    <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
-                </div>
-                <div class="toast-body">${message}</div>
-            `;
+                const toast = document.createElement('div');
+                toast.className = 'toast show';
+                toast.innerHTML = `
+                    <div class="toast-header">
+                        <i class="fas fa-info-circle text-${type} me-2"></i>
+                        <strong class="me-auto">System</strong>
+                        <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+                    </div>
+                    <div class="toast-body">${message}</div>
+                `;
 
-            toastContainer.appendChild(toast);
+                toastContainer.appendChild(toast);
 
-            // Auto remove after 5 seconds
-            setTimeout(() => {
-                toast.remove();
-            }, 5000);
+                // Auto remove after 5 seconds
+                setTimeout(() => {
+                    toast.remove();
+                }, 5000);
+            } catch (error) {
+                // Fallback: Log to console if toast fails
+                console.error('Notification error:', error);
+                console.log(`[${type.toUpperCase()}] ${message}`);
+            }
         }
 
         function createToastContainer() {

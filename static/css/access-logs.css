@@ -1,0 +1,647 @@
+/**
+ * ==============================================
+ * ACCESS-LOGS.CSS - Access Logs + Photo Gallery
+ * ==============================================
+ * Penjelasan: CSS khusus untuk halaman log akses (access_logs.html)
+ * Berisi: Table logs, photo gallery, lightbox modal, filters
+ * Design: Minimalis dengan foto plat terintegrasi
+ * NEW FEATURE: Foto plat ditampilkan di tabel + lightbox zoom
+ */
+
+/* ============================================== */
+/* PAGE HEADER */
+/* ============================================== */
+
+.page-header {
+    /* Penjelasan: Header halaman dengan title dan action buttons */
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.page-title {
+    /* Penjelasan: Judul halaman "Log Akses Kendaraan" */
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 0.25rem;
+}
+
+.page-subtitle {
+    /* Penjelasan: Subjudul "Riwayat akses kendaraan..." */
+    font-size: 0.875rem;
+    color: #64748b;
+    margin-bottom: 0;
+}
+
+/* ============================================== */
+/* FILTER CARD */
+/* ============================================== */
+
+.filter-card {
+    /* Penjelasan: Card untuk filter tanggal, status, dan foto */
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.filter-card .form-label {
+    /* Penjelasan: Label untuk setiap filter field */
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.filter-card .btn-filter {
+    /* Penjelasan: Tombol "Filter" untuk apply filter */
+    width: 100%;
+    background-color: #2563eb;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+.filter-card .btn-filter:hover {
+    background-color: #1d4ed8;
+}
+
+.filter-card .btn-reset {
+    /* Penjelasan: Tombol "Reset" untuk clear semua filter */
+    width: 100%;
+    background-color: #64748b;
+    color: #ffffff;
+    margin-top: 0.5rem;
+}
+
+/* ============================================== */
+/* STATISTICS BOXES */
+/* ============================================== */
+
+.stats-row {
+    /* Penjelasan: Row untuk statistik (Total Log, Boleh Masuk, dll) */
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.stat-box {
+    /* Penjelasan: Box individual untuk setiap statistik */
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    text-align: center;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    transition: all 0.2s ease;
+}
+
+.stat-box:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    border-color: #cbd5e1;
+}
+
+.stat-box h3 {
+    /* Penjelasan: Angka besar dalam stat box */
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #2563eb;
+    margin-bottom: 0.5rem;
+    line-height: 1;
+}
+
+.stat-box p {
+    /* Penjelasan: Label di bawah angka */
+    font-size: 0.875rem;
+    color: #64748b;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0;
+}
+
+.stat-box.stat-success h3 {
+    /* Penjelasan: Stat box untuk "Boleh Masuk" (hijau) */
+    color: #10b981;
+}
+
+.stat-box.stat-danger h3 {
+    /* Penjelasan: Stat box untuk "Ditolak" (merah) */
+    color: #ef4444;
+}
+
+.stat-box.stat-warning h3 {
+    /* Penjelasan: Stat box untuk "Manual" (orange) */
+    color: #f59e0b;
+}
+
+/* ============================================== */
+/* TABLE CARD */
+/* ============================================== */
+
+.table-card {
+    /* Penjelasan: Card yang berisi tabel log akses */
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+}
+
+.table-card .table-responsive {
+    /* Penjelasan: Wrapper untuk table agar bisa scroll horizontal */
+    overflow-x: auto;
+}
+
+/* ============================================== */
+/* PLATE NUMBER STYLING */
+/* ============================================== */
+
+.plate-number {
+    /* Penjelasan: Styling untuk plat nomor di tabel */
+    font-family: 'Courier New', monospace;
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: 1.5px;
+    color: #2563eb;
+    background-color: #eff6ff;
+    padding: 0.5rem 0.875rem;
+    border-radius: 0.375rem;
+    display: inline-block;
+    border: 1px solid #bfdbfe;
+    white-space: nowrap;
+}
+
+/* ============================================== */
+/* PHOTO THUMBNAIL IN TABLE */
+/* ============================================== */
+
+.photo-thumbnail {
+    /* Penjelasan: Thumbnail foto plat di tabel (ukuran kecil) */
+    width: 80px;
+    height: 50px;
+    object-fit: cover;
+    border-radius: 0.375rem;
+    border: 2px solid #e2e8f0;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.photo-thumbnail:hover {
+    /* Penjelasan: Efek hover pada thumbnail - border biru + scale */
+    border-color: #2563eb;
+    transform: scale(1.05);
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+}
+
+.photo-placeholder {
+    /* Penjelasan: Placeholder jika foto tidak ada */
+    width: 80px;
+    height: 50px;
+    background-color: #f1f5f9;
+    border: 2px dashed #cbd5e1;
+    border-radius: 0.375rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #94a3b8;
+    font-size: 1.5rem;
+}
+
+/* ============================================== */
+/* STATUS BADGES */
+/* ============================================== */
+
+.badge-boleh-masuk {
+    /* Penjelasan: Badge hijau untuk status "Boleh Masuk" */
+    background-color: #10b981;
+    color: #ffffff;
+    padding: 0.25rem 0.65rem;
+    border-radius: 0.25rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.badge-ditolak {
+    /* Penjelasan: Badge merah untuk status "Ditolak" */
+    background-color: #ef4444;
+    color: #ffffff;
+    padding: 0.25rem 0.65rem;
+    border-radius: 0.25rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.badge-manual {
+    /* Penjelasan: Badge orange untuk status "Manual Override" */
+    background-color: #f59e0b;
+    color: #ffffff;
+    padding: 0.25rem 0.65rem;
+    border-radius: 0.25rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.badge-error {
+    /* Penjelasan: Badge abu-abu untuk status "Error" */
+    background-color: #64748b;
+    color: #ffffff;
+    padding: 0.25rem 0.65rem;
+    border-radius: 0.25rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* ============================================== */
+/* CONFIDENCE INDICATORS */
+/* ============================================== */
+
+.confidence-text {
+    /* Penjelasan: Text untuk confidence score (80%, 65%, dll) */
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+.confidence-high {
+    /* Penjelasan: Confidence ≥80% (hijau) */
+    color: #10b981;
+}
+
+.confidence-medium {
+    /* Penjelasan: Confidence 60-79% (kuning) */
+    color: #f59e0b;
+}
+
+.confidence-low {
+    /* Penjelasan: Confidence <60% (merah) */
+    color: #ef4444;
+}
+
+/* ============================================== */
+/* LIGHTBOX MODAL (Photo Zoom) */
+/* ============================================== */
+
+.lightbox-modal {
+    /* Penjelasan: Modal untuk zoom foto plat saat diklik */
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.9);
+    z-index: 9999;
+    cursor: zoom-out;
+}
+
+.lightbox-modal.show {
+    /* Penjelasan: Class untuk show modal */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    /* Penjelasan: Animasi fade in untuk lightbox */
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.lightbox-content {
+    /* Penjelasan: Container untuk foto yang di-zoom */
+    max-width: 90%;
+    max-height: 90%;
+    position: relative;
+}
+
+.lightbox-image {
+    /* Penjelasan: Gambar foto plat dalam lightbox */
+    max-width: 100%;
+    max-height: 90vh;
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.lightbox-close {
+    /* Penjelasan: Tombol X untuk close lightbox */
+    position: absolute;
+    top: -40px;
+    right: 0;
+    background-color: #ffffff;
+    color: #1e293b;
+    border: none;
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    font-size: 1.25rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.lightbox-close:hover {
+    /* Penjelasan: Efek hover pada tombol close */
+    background-color: #ef4444;
+    color: #ffffff;
+    transform: scale(1.1);
+}
+
+.lightbox-info {
+    /* Penjelasan: Info plate number di bawah foto */
+    position: absolute;
+    bottom: -50px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: #ffffff;
+    font-size: 1.125rem;
+    font-weight: 600;
+    background-color: rgba(0, 0, 0, 0.7);
+    padding: 0.75rem;
+    border-radius: 0.375rem;
+}
+
+/* ============================================== */
+/* EXPORT BUTTON */
+/* ============================================== */
+
+.btn-export {
+    /* Penjelasan: Tombol "Export CSV" */
+    background-color: #10b981;
+    color: #ffffff;
+    font-weight: 600;
+    padding: 0.625rem 1.25rem;
+    border-radius: 0.375rem;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+}
+
+.btn-export:hover {
+    background-color: #059669;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3);
+}
+
+.btn-export i {
+    font-size: 1rem;
+}
+
+/* ============================================== */
+/* EMPTY STATE */
+/* ============================================== */
+
+.empty-state {
+    /* Penjelasan: Tampilan saat tidak ada log */
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #94a3b8;
+}
+
+.empty-state i {
+    /* Penjelasan: Icon inbox besar */
+    font-size: 4rem;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+    color: #cbd5e1;
+}
+
+.empty-state h4 {
+    /* Penjelasan: Judul "Belum Ada Log Akses" */
+    color: #64748b;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.empty-state p {
+    /* Penjelasan: Pesan panduan */
+    font-size: 0.875rem;
+    color: #94a3b8;
+    margin-bottom: 0.5rem;
+}
+
+/* ============================================== */
+/* TABLE ENHANCEMENTS */
+/* ============================================== */
+
+.table tbody tr {
+    /* Penjelasan: Baris tabel dengan border halus */
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.table tbody tr:hover {
+    /* Penjelasan: Efek hover pada baris tabel */
+    background-color: #f8fafc;
+}
+
+.table tbody td {
+    /* Penjelasan: Cell tabel dengan vertical alignment */
+    vertical-align: middle;
+    padding: 1rem 0.75rem;
+}
+
+.table tbody td small {
+    /* Penjelasan: Text kecil untuk waktu, dll */
+    font-size: 0.75rem;
+    color: #94a3b8;
+    display: block;
+    margin-top: 0.25rem;
+}
+
+/* ============================================== */
+/* VEHICLE TYPE ICONS */
+/* ============================================== */
+
+.vehicle-type {
+    /* Penjelasan: Container untuk icon + text jenis kendaraan */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: #475569;
+}
+
+.vehicle-type i {
+    /* Penjelasan: Icon mobil/motor/truk */
+    font-size: 1rem;
+    color: #64748b;
+}
+
+/* ============================================== */
+/* COLOR INDICATOR */
+/* ============================================== */
+
+.color-indicator {
+    /* Penjelasan: Dot warna untuk menunjukkan warna kendaraan */
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid #e2e8f0;
+    margin-right: 0.5rem;
+}
+
+/* ============================================== */
+/* ACTION BUTTONS */
+/* ============================================== */
+
+.action-buttons {
+    /* Penjelasan: Container untuk tombol action di header */
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+/* ============================================== */
+/* RESPONSIVE DESIGN */
+/* ============================================== */
+
+@media (max-width: 992px) {
+    /* Penjelasan: Untuk tablet */
+
+    .stats-row {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .stat-box h3 {
+        font-size: 2rem;
+    }
+}
+
+@media (max-width: 768px) {
+    /* Penjelasan: Untuk smartphone */
+
+    .page-header {
+        padding: 1rem;
+    }
+
+    .page-title {
+        font-size: 1.5rem;
+    }
+
+    .action-buttons {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .action-buttons .btn {
+        width: 100%;
+    }
+
+    .stats-row {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+    }
+
+    .stat-box {
+        padding: 1rem;
+    }
+
+    .stat-box h3 {
+        font-size: 1.75rem;
+    }
+
+    .filter-card {
+        padding: 1rem;
+    }
+
+    .table-card {
+        border-radius: 0.375rem;
+    }
+
+    .table thead th,
+    .table tbody td {
+        padding: 0.75rem 0.5rem;
+        font-size: 0.8125rem;
+    }
+
+    .plate-number {
+        font-size: 0.875rem;
+        padding: 0.375rem 0.625rem;
+        letter-spacing: 1px;
+    }
+
+    .photo-thumbnail,
+    .photo-placeholder {
+        width: 60px;
+        height: 40px;
+    }
+
+    .badge-boleh-masuk,
+    .badge-ditolak,
+    .badge-manual,
+    .badge-error {
+        font-size: 0.75rem;
+        padding: 0.375rem 0.75rem;
+    }
+
+    .lightbox-content {
+        max-width: 95%;
+    }
+
+    .lightbox-close {
+        top: 10px;
+        right: 10px;
+        width: 32px;
+        height: 32px;
+        font-size: 1rem;
+    }
+
+    .lightbox-info {
+        font-size: 0.875rem;
+        padding: 0.5rem;
+        position: static;
+        margin-top: 1rem;
+    }
+}
+
+/* ============================================== */
+/* PRINT STYLES */
+/* ============================================== */
+
+@media print {
+    /* Penjelasan: Styling saat user print halaman */
+
+    .navbar,
+    .filter-card,
+    .action-buttons,
+    .btn-export {
+        display: none;
+    }
+
+    .table-card {
+        box-shadow: none;
+        border: 1px solid #000;
+    }
+
+    .photo-thumbnail {
+        border: 1px solid #000;
+    }
+
+    body {
+        background-color: #ffffff;
+    }
+}

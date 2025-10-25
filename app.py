@@ -765,8 +765,8 @@ def real_plate_detection(frame):
             logger.debug(f"🔍 Crop: original=({x},{y},{w},{h}), with_margin=({x1},{y1},{x2-x1},{y2-y1})")
 
             # Save cropped plate
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            os.makedirs('gambarplat', exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            os.makedirs('static/gambarplat', exist_ok=True)
 
             # Step 3: Analisis kendaraan (warna + tipe)
             vehicle_info = vehicle_analyzer.analyze_vehicle(roi, frame, best_bbox)
@@ -776,7 +776,7 @@ def real_plate_detection(frame):
             logger.info(f"🚗 Vehicle detected: {vehicle_type}, Color: {vehicle_color}, Size: {w}x{h}")
 
             # Save original FULL crop (dengan BARIS UTAMA + BARIS TAHUN PAJAK)
-            debug_path = f"gambarplat/crop_{timestamp}.jpg"
+            debug_path = f"static/gambarplat/crop_{timestamp}.jpg"
             cv2.imwrite(debug_path, roi)
             logger.info(f"💾 Full plate saved: {debug_path} (size: {w}x{h})")
 
@@ -820,7 +820,8 @@ def real_plate_detection(frame):
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
                         # Filename dengan metadata: SUCCESS_PLAT_TYPE_COLOR_TIMESTAMP.jpg
-                        success_path = f"gambarplat/SUCCESS_{plate_text}_{vehicle_type}_{vehicle_color}_{timestamp}.jpg"
+                        # Normalize plate text untuk filename (hapus spasi)
+                        success_path = f"static/gambarplat/SUCCESS_{plate_text.replace(' ', '')}_{vehicle_type}_{vehicle_color}_{timestamp}.jpg"
                         cv2.imwrite(success_path, annotated)  # ← FULL PLAT disimpan
                         logger.info(f"💾 Success saved with full plate: {success_path}")
                     except Exception as e:
@@ -1108,15 +1109,18 @@ def save_access_log(plate_text, confidence, access_status, gate_action, notes):
 
         cursor = conn.cursor()
 
-        # Simpan foto (simulasi path)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        photo_path = f"access_photos/{timestamp}_{plate_text}.jpg"
+        # Normalize plate text - hapus spasi untuk konsistensi dengan database
+        normalized_plate = plate_text.replace(' ', '').upper()
+
+        # Path foto sesuai dengan yang disimpan di generate_frames
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        photo_path = f"gambarplat/crop_{timestamp}.jpg"
 
         query = """
         INSERT INTO log_akses_masuk (plat_terdeteksi, tingkat_yakin, status_akses, aksi_palang, path_foto, catatan)
         VALUES (%s, %s, %s, %s, %s, %s)
-        """  # MySQL: %s instead of ?
-        cursor.execute(query, (plate_text, confidence, access_status, gate_action, photo_path, notes))
+        """
+        cursor.execute(query, (normalized_plate, confidence, access_status, gate_action, photo_path, notes))
         conn.commit()
 
         logger.info(f"📝 Log saved: {plate_text} - {access_status}")
@@ -1144,7 +1148,7 @@ def index():
         if not conn:
             raise Exception("Database connection failed")
 
-        cursor = conn.cursor(dictionary=True)  # MySQL: pakai dictionary=True
+        cursor = conn.cursor()  # PyMySQL: DictCursor sudah di-set di pool
 
         # Get recent access logs
         cursor.execute("""
@@ -1342,7 +1346,7 @@ def api_detected_plates():
         from pathlib import Path
 
         # Cari semua file SUCCESS
-        success_files = glob.glob('gambarplat/SUCCESS_*.jpg')
+        success_files = glob.glob('static/gambarplat/SUCCESS_*.jpg')
         success_files.sort(key=os.path.getmtime, reverse=True)  # Terbaru dulu
 
         detected_plates = []
@@ -1392,11 +1396,13 @@ def api_detected_plates():
                             cursor = conn.cursor()  # DictCursor already set in pool
                             cursor.execute("SELECT jenis_kendaraan FROM kendaraan_terdaftar WHERE nomor_plat = %s", (plate_text.replace(' ', ''),))  # MySQL: %s, remove spaces
                             vehicle = cursor.fetchone()
+                            cursor.close()  # ✅ Close cursor before connection
                             conn.close()
 
                             if vehicle:
                                 vehicle_type = vehicle['jenis_kendaraan'].capitalize()
-                    except:
+                    except Exception as e:
+                        logger.warning(f"Error fetching vehicle type from DB: {e}")
                         pass
 
             except Exception as parse_error:
@@ -1409,12 +1415,14 @@ def api_detected_plates():
                     cursor = conn.cursor()  # DictCursor already set in pool
                     cursor.execute("SELECT nama_pemilik FROM kendaraan_terdaftar WHERE nomor_plat = %s", (plate_text.replace(' ', ''),))  # MySQL: %s, remove spaces
                     vehicle = cursor.fetchone()
+                    cursor.close()  # ✅ Close cursor before connection
                     conn.close()
 
                     nama_pemilik = vehicle['nama_pemilik'] if vehicle else "Tidak Terdaftar"
                 else:
                     nama_pemilik = "Unknown"
-            except:
+            except Exception as e:
+                logger.warning(f"Error fetching owner name from DB: {e}")
                 nama_pemilik = "Unknown"
 
             # File size
@@ -1509,10 +1517,13 @@ def vehicles():
 @app.route('/access_logs')
 def access_logs():
     """
-    Penjelasan SMK: Halaman log akses
-    Seperti 'history browser' yang tunjukkan semua aktivitas
+    Penjelasan SMK: Halaman log akses dengan gallery foto plat
+    Seperti 'history browser' yang tunjukkan semua aktivitas + foto plat
     """
     try:
+        import glob
+        import os
+
         conn = get_db_connection()
         if not conn:
             raise Exception("Database connection failed")
@@ -1522,6 +1533,7 @@ def access_logs():
         # Get filter dari URL parameter
         date_filter = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
         status_filter = request.args.get('status', 'all')
+        today = datetime.now().strftime('%Y-%m-%d')
 
         # Build query dengan filter
         base_query = """
@@ -1541,13 +1553,42 @@ def access_logs():
         cursor.execute(base_query, params)
         logs = cursor.fetchall()
 
+        # Fix photo path: Cari file terdekat kalau exact timestamp tidak ada
+        # Penjelasan SMK: Kadang timestamp di database beda beberapa detik dengan nama file
+        for log in logs:
+            if log.get('path_foto'):
+                full_path = os.path.join('static', log['path_foto'])
+                # Cek apakah file exist
+                if not os.path.exists(full_path):
+                    # Cari file terdekat (dalam range ±5 detik)
+                    try:
+                        # Extract timestamp dari path: gambarplat/crop_20251025_093126.jpg
+                        filename = os.path.basename(log['path_foto'])
+                        timestamp_str = filename.replace('crop_', '').replace('.jpg', '')
+
+                        # Cari semua file crop di hari yang sama
+                        date_part = timestamp_str[:8]  # 20251025
+                        pattern = f"static/gambarplat/crop_{date_part}_*.jpg"
+                        available_files = glob.glob(pattern)
+
+                        if available_files:
+                            # Ambil file terdekat berdasarkan timestamp
+                            closest_file = min(available_files,
+                                             key=lambda x: abs(int(os.path.basename(x).replace('crop_', '').replace('.jpg', '')) - int(timestamp_str)))
+                            # Update path_foto dengan file yang ketemu
+                            log['path_foto'] = closest_file.replace('static/', '')
+                    except Exception as e:
+                        logger.debug(f"Could not find closest photo for {log['plat_terdeteksi']}: {e}")
+                        log['path_foto'] = None
+
         cursor.close()
         conn.close()
 
         return render_template('access_logs.html',
                              logs=logs,
                              date_filter=date_filter,
-                             status_filter=status_filter)
+                             status_filter=status_filter,
+                             today=today)
     except Exception as e:
         logger.error(f"❌ Error loading access logs: {e}")
         flash(f'Error loading access logs: {e}')
@@ -1568,7 +1609,7 @@ def export_access_logs_csv():
         if not conn:
             raise Exception("Database connection failed")
 
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()  # PyMySQL: DictCursor sudah di-set di pool
 
         # Get filter dari URL parameter (sama seperti access_logs)
         date_filter = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
@@ -1645,22 +1686,51 @@ def export_access_logs_csv():
         flash(f'Error exporting CSV: {e}')
         return redirect(url_for('access_logs'))
 
-@app.route('/detected_plates')
-def detected_plates():
+@app.route('/delete_access_logs', methods=['POST'])
+def delete_access_logs():
     """
-    Penjelasan SMK: Halaman gallery plat terdeteksi
-    Tampilkan semua plat yang berhasil dibaca OCR dengan detail
+    Penjelasan SMK: Bulk delete log akses berdasarkan ID
+    Untuk cleanup data yang tidak diperlukan
     """
-    return render_template('detected_plates.html')
+    try:
+        data = request.get_json()
+        ids = data.get('ids', [])
+
+        if not ids:
+            return jsonify({'success': False, 'error': 'No IDs provided'}), 400
+
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+
+        cursor = conn.cursor()
+
+        # Delete logs dengan IN clause
+        placeholders = ','.join(['%s'] * len(ids))
+        query = f"DELETE FROM log_akses_masuk WHERE id_log IN ({placeholders})"
+        cursor.execute(query, ids)
+
+        deleted_count = cursor.rowcount
+        conn.commit()
+
+        cursor.close()
+        conn.close()
+
+        logger.info(f"🗑️ Deleted {deleted_count} access logs")
+        return jsonify({'success': True, 'deleted': deleted_count})
+
+    except Exception as e:
+        logger.error(f"❌ Error deleting logs: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/gambarplat/<path:filename>')
 def serve_plate_image(filename):
     """
-    Penjelasan SMK: Serve gambar plat dari folder gambarplat/
+    Penjelasan SMK: Serve gambar plat dari folder static/gambarplat/
     Seperti static file server untuk gambar
     """
     from flask import send_from_directory
-    return send_from_directory('gambarplat', filename)
+    return send_from_directory('static/gambarplat', filename)
 
 # =====================================================
 # CRUD OPERATIONS (Create, Read, Update, Delete)
@@ -1695,10 +1765,12 @@ def add_vehicle():
     Seperti 'Add Contact' di phonebook
     """
     try:
-        nomor_plat = request.form['nomor_plat'].replace(' ', '').upper()
+        # Get form data - field name dari HTML form adalah 'plat_nomor' bukan 'nomor_plat'
+        nomor_plat = request.form['plat_nomor'].replace(' ', '').upper()
         nama_pemilik = request.form['nama_pemilik'].strip()
         jenis_kendaraan = request.form['jenis_kendaraan']
         nomor_hp = normalize_phone(request.form.get('nomor_hp', ''))
+        status = request.form.get('status', 'aktif')
 
         conn = get_db_connection()
         if not conn:
@@ -1708,9 +1780,9 @@ def add_vehicle():
 
         query = """
         INSERT INTO kendaraan_terdaftar (nomor_plat, nama_pemilik, jenis_kendaraan, nomor_hp, status)
-        VALUES (%s, %s, %s, %s, 'aktif')
-        """  # MySQL: %s instead of ?
-        cursor.execute(query, (nomor_plat, nama_pemilik, jenis_kendaraan, nomor_hp))
+        VALUES (%s, %s, %s, %s, %s)
+        """
+        cursor.execute(query, (nomor_plat, nama_pemilik, jenis_kendaraan, nomor_hp, status))
         conn.commit()
 
         cursor.close()
@@ -1719,7 +1791,7 @@ def add_vehicle():
         flash(f'✅ Kendaraan {nomor_plat} berhasil ditambahkan!')
         logger.info(f"✅ Vehicle added: {nomor_plat} - {nama_pemilik}")
 
-    except mysql.connector.IntegrityError as e:  # MySQL: IntegrityError
+    except pymysql.IntegrityError as e:
         # Check if duplicate key error
         if 'Duplicate entry' in str(e):
             flash(f'❌ Plat nomor {nomor_plat} sudah terdaftar!')
@@ -1733,13 +1805,15 @@ def add_vehicle():
 
     return redirect(url_for('vehicles'))
 
-@app.route('/edit_vehicle/<int:vehicle_id>', methods=['POST'])
-def edit_vehicle(vehicle_id):
+@app.route('/edit_vehicle', methods=['POST'])
+def edit_vehicle():
     """
     Penjelasan SMK: Edit data kendaraan yang sudah ada
     Seperti 'Edit Contact' di phonebook
     """
     try:
+        vehicle_id = request.form['id_kendaraan']
+        plat_nomor = request.form['plat_nomor'].replace(' ', '').upper()
         nama_pemilik = request.form['nama_pemilik'].strip()
         jenis_kendaraan = request.form['jenis_kendaraan']
         nomor_hp = normalize_phone(request.form.get('nomor_hp', ''))
@@ -1753,17 +1827,17 @@ def edit_vehicle(vehicle_id):
 
         query = """
         UPDATE kendaraan_terdaftar
-        SET nama_pemilik = %s, jenis_kendaraan = %s, nomor_hp = %s, status = %s
+        SET nomor_plat = %s, nama_pemilik = %s, jenis_kendaraan = %s, nomor_hp = %s, status = %s
         WHERE id_kendaraan = %s
-        """  # MySQL: %s instead of ?
-        cursor.execute(query, (nama_pemilik, jenis_kendaraan, nomor_hp, status, vehicle_id))
+        """
+        cursor.execute(query, (plat_nomor, nama_pemilik, jenis_kendaraan, nomor_hp, status, vehicle_id))
         conn.commit()
 
         cursor.close()
         conn.close()
 
         flash('✅ Data kendaraan berhasil diupdate!')
-        logger.info(f"✅ Vehicle updated: ID {vehicle_id}")
+        logger.info(f"✅ Vehicle updated: ID {vehicle_id} - {plat_nomor}")
 
     except Exception as e:
         flash(f'❌ Error update kendaraan: {e}')
@@ -1771,25 +1845,27 @@ def edit_vehicle(vehicle_id):
 
     return redirect(url_for('vehicles'))
 
-@app.route('/delete_vehicle/<int:vehicle_id>')
-def delete_vehicle(vehicle_id):
+@app.route('/delete_vehicle', methods=['POST'])
+def delete_vehicle():
     """
     Penjelasan SMK: Hapus kendaraan dari database
     Seperti 'Delete Contact' di phonebook
     """
     try:
+        vehicle_id = request.form['id_kendaraan']
+
         conn = get_db_connection()
         if not conn:
             raise Exception("Database connection failed")
 
-        cursor = conn.cursor()  # DictCursor already set in pool
+        cursor = conn.cursor()
 
         # Get vehicle info dulu untuk log
-        cursor.execute("SELECT nomor_plat, nama_pemilik FROM kendaraan_terdaftar WHERE id_kendaraan = %s", (vehicle_id,))  # MySQL: %s
+        cursor.execute("SELECT nomor_plat, nama_pemilik FROM kendaraan_terdaftar WHERE id_kendaraan = %s", (vehicle_id,))
         vehicle = cursor.fetchone()
 
         if vehicle:
-            cursor.execute("DELETE FROM kendaraan_terdaftar WHERE id_kendaraan = %s", (vehicle_id,))  # MySQL: %s
+            cursor.execute("DELETE FROM kendaraan_terdaftar WHERE id_kendaraan = %s", (vehicle_id,))
             conn.commit()
 
             flash(f'✅ Kendaraan {vehicle["nomor_plat"]} ({vehicle["nama_pemilik"]}) berhasil dihapus!')
@@ -1806,6 +1882,37 @@ def delete_vehicle(vehicle_id):
 
     return redirect(url_for('vehicles'))
 
+@app.route('/delete_vehicles', methods=['POST'])
+def delete_vehicles():
+    """Bulk delete kendaraan berdasarkan ID"""
+    try:
+        data = request.get_json()
+        ids = data.get('ids', [])
+
+        if not ids:
+            return jsonify({'success': False, 'error': 'No IDs provided'}), 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Delete vehicles dengan IN clause
+        placeholders = ','.join(['%s'] * len(ids))
+        query = f"DELETE FROM kendaraan_terdaftar WHERE id_kendaraan IN ({placeholders})"
+        cursor.execute(query, ids)
+
+        deleted_count = cursor.rowcount
+        conn.commit()
+
+        cursor.close()
+        conn.close()
+
+        logger.info(f"🗑️ Deleted {deleted_count} vehicles")
+        return jsonify({'success': True, 'deleted': deleted_count})
+
+    except Exception as e:
+        logger.error(f"❌ Error deleting vehicles: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # =====================================================
 # SYSTEM INITIALIZATION & MAIN
 # =====================================================
@@ -1817,7 +1924,7 @@ def create_required_folders():
     """
     folders = [
         'static/screenshots',
-        'access_photos',
+        'static/gambarplat',
         'logs'
     ]
 

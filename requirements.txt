@@ -8,7 +8,8 @@ Pillow==10.0.1
 Flask==2.3.3
 
 # Database
-mysql-connector-python==8.2.0
+PyMySQL==1.1.0
+DBUtils==3.0.3
 
 # Environment Management
 python-dotenv==1.0.0
