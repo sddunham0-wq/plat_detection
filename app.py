@@ -64,8 +64,8 @@ system_status = {
 # Penjelasan SMK: Sistem untuk bikin kotak stabil, tidak kedip-kedip
 # Tracking history untuk smooth bounding boxes
 from collections import deque
-vehicle_tracking_history = deque(maxlen=5)  # Simpan 5 frame terakhir untuk smoothing
-plate_tracking_history = deque(maxlen=7)    # Plate tracking dengan smoothing lebih baik
+vehicle_tracking_history = deque(maxlen=3)  # OPTIMIZED: 3 frame untuk balance speed & stability
+plate_tracking_history = deque(maxlen=3)    # OPTIMIZED: Reduced from 7 to 3 for faster detection (700ms → 300ms delay)
 
 # ★ 2-MODEL DUAL DETECTION SYSTEM
 # Penjelasan SMK: Gunakan 2 model untuk deteksi lengkap
@@ -89,7 +89,7 @@ if USE_YOLO:
     try:
         plate_detector = YOLOPlateDetector(
             model_path='models/best.pt',
-            conf_threshold=0.15  # OPTIMIZED: Turun ke 0.15 untuk lebih sensitif
+            conf_threshold=0.30  # RELAXED: 0.30 to detect far/small plates (5-10m distance)
         )
         logger.info("✅ Plate Detector (best.pt) initialized - for PLATE detection")
     except Exception as e:
@@ -474,8 +474,8 @@ def multi_scale_detection(frame):
 
     scales = [
         (1.0, "Full Resolution"),
-        (0.7, "70% Scale"),
-        (0.5, "50% Scale")
+        (0.7, "70% Scale")
+        # REMOVED: (0.5, "50% Scale") - 33% faster detection, rarely needed for close-up plates
     ]
 
     for scale, label in scales:
@@ -631,9 +631,9 @@ def real_plate_detection(frame):
 
         # ★ APPLY SMOOTHING untuk plate detections juga
         # Penjelasan: Kotak plat juga stabil, tidak jitter
-        # IOU threshold 0.40 = lebih ketat untuk stabilitas lebih baik
+        # IOU threshold 0.25 = lebih toleran untuk plat bergerak (OPTIMIZED from 0.40)
         if bboxes:
-            smoothed_plates = smooth_bounding_boxes(bboxes, plate_tracking_history, iou_threshold=0.40)
+            smoothed_plates = smooth_bounding_boxes(bboxes, plate_tracking_history, iou_threshold=0.25)
         else:
             smoothed_plates = []
 
@@ -1721,6 +1721,43 @@ def delete_access_logs():
 
     except Exception as e:
         logger.error(f"❌ Error deleting logs: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/cleanup_photos', methods=['POST'])
+def cleanup_photos():
+    """
+    Penjelasan SMK: Hapus semua foto crop di folder static/gambarplat/
+    Untuk menghemat disk space dan mencegah sistem berat
+    """
+    try:
+        photo_dir = 'static/gambarplat'
+
+        if not os.path.exists(photo_dir):
+            return jsonify({'success': False, 'error': 'Folder tidak ditemukan'}), 404
+
+        # Hitung total file dan ukuran sebelum dihapus
+        total_files = 0
+        total_size = 0
+
+        for filename in os.listdir(photo_dir):
+            file_path = os.path.join(photo_dir, filename)
+            if os.path.isfile(file_path):
+                total_size += os.path.getsize(file_path)
+                total_files += 1
+                os.remove(file_path)
+
+        # Konversi size ke MB
+        size_mb = total_size / (1024 * 1024)
+
+        logger.info(f"🧹 Cleaned {total_files} photos ({size_mb:.2f} MB) from {photo_dir}")
+        return jsonify({
+            'success': True,
+            'deleted': total_files,
+            'size_mb': round(size_mb, 2)
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error cleaning photos: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/gambarplat/<path:filename>')

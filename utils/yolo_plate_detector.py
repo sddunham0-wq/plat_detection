@@ -28,6 +28,13 @@ class YOLOPlateDetector:
         self.model = None
         self.model_type = None
 
+        # Plat Indonesia validation parameters (RELAXED for far/small plates)
+        self.MIN_WIDTH = 50   # RELAXED: Support plates 50-100px (far distance 5-10m)
+        self.MIN_HEIGHT = 20  # RELAXED: Support smaller plates
+        self.MIN_AREA = 1500  # RELAXED: 50x30 = 1500 pixels (was 3000)
+        self.MIN_ASPECT_RATIO = 1.8  # RELAXED: 1.8:1 more tolerant (was 2.0)
+        self.MAX_ASPECT_RATIO = 5.5  # Maximum 5.5:1 untuk filter noise
+
         # Try specified model first
         try:
             logger.info(f"🔧 Loading YOLO model: {model_path}")
@@ -104,10 +111,26 @@ class YOLOPlateDetector:
                         w = int(x2 - x1)
                         h = int(y2 - y1)
 
-                        # Validate box size (minimum 30x10 pixels)
-                        if w > 30 and h > 10:
-                            boxes.append((x, y, w, h))
-                            logger.debug(f"✅ Plate detected: conf={conf:.3f}, bbox=({x},{y},{w},{h})")
+                        # Validate box size (minimum untuk plat Indonesia)
+                        if w < self.MIN_WIDTH or h < self.MIN_HEIGHT:
+                            logger.debug(f"❌ Rejected - too small: {w}x{h} (min {self.MIN_WIDTH}x{self.MIN_HEIGHT})")
+                            continue
+
+                        # Validate area
+                        area = w * h
+                        if area < self.MIN_AREA:
+                            logger.debug(f"❌ Rejected - area too small: {area} pixels (min {self.MIN_AREA})")
+                            continue
+
+                        # Validate aspect ratio (plat Indonesia biasanya 3:1 sampai 4:1)
+                        aspect_ratio = w / h if h > 0 else 0
+                        if aspect_ratio < self.MIN_ASPECT_RATIO or aspect_ratio > self.MAX_ASPECT_RATIO:
+                            logger.debug(f"❌ Rejected - invalid aspect ratio: {aspect_ratio:.2f} (expected {self.MIN_ASPECT_RATIO}-{self.MAX_ASPECT_RATIO})")
+                            continue
+
+                        # All validations passed
+                        boxes.append((x, y, w, h))
+                        logger.debug(f"✅ Plate detected: conf={conf:.3f}, bbox=({x},{y},{w},{h}), aspect={aspect_ratio:.2f}")
 
             # Boxes are already sorted by YOLO confidence
             logger.info(f"📊 YOLO detected {len(boxes)} plate(s)")
@@ -154,12 +177,24 @@ class YOLOPlateDetector:
                         w = int(x2 - x1)
                         h = int(y2 - y1)
 
-                        if w > 30 and h > 10:
-                            detections.append({
-                                'bbox': (x, y, w, h),
-                                'confidence': conf
-                            })
-                            logger.debug(f"Detection: conf={conf:.3f}, bbox=({x},{y},{w},{h})")
+                        # Apply same validation as detect()
+                        if w < self.MIN_WIDTH or h < self.MIN_HEIGHT:
+                            continue
+
+                        area = w * h
+                        if area < self.MIN_AREA:
+                            continue
+
+                        aspect_ratio = w / h if h > 0 else 0
+                        if aspect_ratio < self.MIN_ASPECT_RATIO or aspect_ratio > self.MAX_ASPECT_RATIO:
+                            continue
+
+                        # All validations passed
+                        detections.append({
+                            'bbox': (x, y, w, h),
+                            'confidence': conf
+                        })
+                        logger.debug(f"Detection: conf={conf:.3f}, bbox=({x},{y},{w},{h}), aspect={aspect_ratio:.2f}")
 
             # Sort by confidence (highest first)
             detections.sort(key=lambda d: d['confidence'], reverse=True)

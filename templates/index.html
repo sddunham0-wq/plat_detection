@@ -171,8 +171,26 @@
                     </div>
                 </div>
 
-                <!-- Recent Access Logs -->
+ <!-- OCR Results Panel - NEW! -->
                 <div class="card">
+                    <div class="card-header">
+                        <h6>
+                            <i class="fas fa-text-width me-2"></i>Hasil OCR Terbaru
+                            <span class="badge bg-info" id="ocrCount">0</span>
+                        </h6>
+                    </div>
+                    <!-- Penjelasan: Panel untuk hasil OCR real-time -->
+                    <!-- CSS: .ocr-results-panel di dashboard.css -->
+                    <div class="card-body ocr-results-panel" id="ocrResultsPanel">
+                        <div class="empty-state">
+                            <i class="fas fa-hourglass-half"></i>
+                            <p>Menunggu hasil OCR...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Access Logs -->
+                <div class="card mt-3">
                     <div class="card-header">
                         <h6>
                             <i class="fas fa-history me-2"></i>Log Akses Terbaru
@@ -201,7 +219,7 @@
                                             <span class="badge bg-warning" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">MANUAL</span>
                                         {% endif %}
                                         <br><small class="text-muted">
-                                            {{ log.detection_timestamp.strftime('%H:%M:%S') }}
+                                            {{ log.waktu_deteksi.strftime('%H:%M:%S') }}
                                         </small>
                                     </div>
                                 </div>
@@ -221,23 +239,7 @@
                     </div>
                 </div>
 
-                <!-- OCR Results Panel - NEW! -->
-                <div class="card mt-3">
-                    <div class="card-header">
-                        <h6>
-                            <i class="fas fa-text-width me-2"></i>Hasil OCR Terbaru
-                            <span class="badge bg-info" id="ocrCount">0</span>
-                        </h6>
-                    </div>
-                    <!-- Penjelasan: Panel untuk hasil OCR real-time -->
-                    <!-- CSS: .ocr-results-panel di dashboard.css -->
-                    <div class="card-body ocr-results-panel" id="ocrResultsPanel">
-                        <div class="empty-state">
-                            <i class="fas fa-hourglass-half"></i>
-                            <p>Menunggu hasil OCR...</p>
-                        </div>
-                    </div>
-                </div>
+               
             </div>
         </div>
     </div>

@@ -32,7 +32,7 @@ class Config:
     DB_NAME = os.getenv('DB_NAME', 'sistem_parkir_smk')
 
     # Konfigurasi Sistem
-    SAVE_FOLDER = os.getenv('SAVE_FOLDER', 'gambarplat')
+    SAVE_FOLDER = os.getenv('SAVE_FOLDER', 'static/gambarplat')
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
     MAX_RETRY_CAMERA = int(os.getenv('MAX_RETRY_CAMERA', '5'))
     FLASK_PORT = int(os.getenv('FLASK_PORT', '8080'))  # Default 8080 (port development yang aman)
@@ -99,7 +99,7 @@ class Config:
 
         # Info
         print(f"📹 Kamera: {self.CAMERA_HOST}:{self.CAMERA_PORT}")
-        print(f"📁 Save folder: {self.SAVE_FOLDER}")
+        print(f"📁 Save folder: {self.SAVE_FOLDER} (untuk foto plat terdeteksi)")
         print(f"💾 Database: MySQL ({self.DB_USER}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME})")
         print("")
 

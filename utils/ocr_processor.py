@@ -75,8 +75,9 @@ class OCRProcessor:
                 logger.debug(f"📏 Upscaled: {w}x{h} → {new_w}x{new_h} ({scale:.1f}x)")
 
             # ★ SHARPENING untuk detail lebih tajam
+            # REDUCED: 9→7 (Bug #22 Fix #2) - lebih gentle, cegah hilang digit tipis (1,8)
             kernel_sharpen = np.array([[-1, -1, -1],
-                                       [-1,  9, -1],
+                                       [-1,  7, -1],
                                        [-1, -1, -1]])
             sharpened = cv2.filter2D(gray, -1, kernel_sharpen)
 
@@ -203,9 +204,15 @@ class OCRProcessor:
             if i >= len(chars):
                 break
 
-            # ★ PERBAIKAN 3: Hanya koreksi kalau memang bukan huruf!
-            # Ini mencegah koreksi huruf yang sudah benar
-            if not chars[i].isalpha():
+            # ★ REVERSE CORRECTION: Common OCR errors untuk huruf depan
+            # I→F: Huruf 'I' jarang di plat Indonesia posisi depan (Bug #22)
+            # 7→B: Angka '7' bisa salah baca huruf 'B' (Bug #22 expanded)
+            if chars[i] == 'I':
+                chars[i] = 'F'
+            elif chars[i] == '7':
+                chars[i] = 'B'  # NEW: 7→B correction for Jakarta plates
+            # ★ Hanya koreksi kalau memang bukan huruf!
+            elif not chars[i].isalpha():
                 # Common errors di posisi huruf depan
                 if chars[i] == '0':
                     chars[i] = 'O'
@@ -270,19 +277,21 @@ class OCRProcessor:
         if not text:
             return text, 0.0
 
-        # Remove ALL spaces dulu untuk normalisasi
+        # ★ LIMIT: Maksimal 8 karakter untuk plat Indonesia (prevent junk reading)
         text_no_space = text.replace(' ', '')
+        if len(text_no_space) > 8:
+            text_no_space = text_no_space[:8]  # Potong di 8 karakter
 
-        # Pattern plat Indonesia: [Huruf][Angka][Huruf]
-        # Contoh: F1234ABC, B1234XYZ, AA1234BB
-        # ★ FIXED: Minimal 3 digit untuk nomor plat (plat Indonesia standar: 3-4 digit)
-        # BEFORE: \d{1,4} → terima "A 1 B" (terlalu lemah!)
-        # AFTER: \d{3,4} → hanya terima "B 123 AB" atau "B 1234 ABC" (lebih ketat!)
-        pattern = r'^([A-Z]{1,2})(\d{3,4})([A-Z]{1,3})$'
+        # Pattern plat Indonesia: [1 Huruf][1-4 Angka][1-3 Huruf]
+        # Area code: 1 huruf (B, F, D, E, dll)
+        # Nomor: 1-4 angka (motor: 1-2 digit, mobil: 3-4 digit)
+        # Series: 1-3 huruf random (A, AB, ABC, UNP, HG, dll)
+        # Examples: "B 1 A" (motor), "F 1818 HG" (mobil), "B 1205 UNP" (mobil)
+        pattern = r'^([A-Z])(\d{1,4})([A-Z]{1,3})$'
         match = re.match(pattern, text_no_space)
 
         if match:
-            area_code = match.group(1)    # "F" atau "AA"
+            area_code = match.group(1)    # "F", "B", "D"
             number = match.group(2)       # "1234"
             series = match.group(3)       # "ABC"
 
@@ -324,8 +333,6 @@ class OCRProcessor:
     def ocr_single_mode(self, img, psm_config):
         """
         OCR dengan 1 PSM mode menggunakan BAHASA INDONESIA
-
-        FIXED: Remove double upscaling - preprocessing sudah handle upscaling!
         """
         try:
             config = f"{psm_config} -c tessedit_char_whitelist={self.char_whitelist}"
@@ -361,20 +368,8 @@ class OCRProcessor:
             else:
                 img_bgr = img
 
-            # ★ UPSCALE IMAGE BEFORE OCR (FIX UNTUK CROP KECIL!)
-            # Penjelasan SMK: Zoom gambar supaya lebih besar dan jelas untuk OCR
-            # Gambar kecil (120x64) → Zoom 4x → Jadi besar (480x256) → Lebih mudah dibaca!
-            h, w = img_bgr.shape[:2]
-            target_height = 256  # Target minimal untuk OCR yang bagus
-            scale_factor = max(4.0, target_height / h)  # Minimum 4x zoom
-
-            if scale_factor > 1.0:
-                # cv2.INTER_CUBIC = Interpolasi berkualitas tinggi (smooth, tidak pixelated)
-                img_bgr = cv2.resize(img_bgr, None,
-                                    fx=scale_factor,
-                                    fy=scale_factor,
-                                    interpolation=cv2.INTER_CUBIC)
-                logger.debug(f"📐 Upscaled from {w}x{h} to {img_bgr.shape[1]}x{img_bgr.shape[0]} ({scale_factor:.1f}x)")
+            # NOTE: Upscaling removed - preprocessing already handles it (avoid double upscaling)
+            # This saves 100-200ms per OCR call and prevents quality degradation
 
             # ★ FIX: Read text dengan EasyOCR (no allowlist - too restrictive)
             # Strategy: Let EasyOCR read freely, then validate dengan is_valid_plate()
@@ -398,22 +393,23 @@ class OCRProcessor:
 
             logger.info(f"📝 EasyOCR RAW: '{text}' → CLEANED: '{cleaned}' (conf: {confidence:.2f})")
 
-            # ★ DEBUGGING: Save preprocessed image untuk analisis
-            try:
-                import os
-                import time
-                os.makedirs('debug_ocr', exist_ok=True)
-                timestamp = time.strftime("%Y%m%d_%H%M%S")
-                debug_path = f"debug_ocr/easyocr_{cleaned}_{timestamp}.jpg"
-                cv2.imwrite(debug_path, img_bgr)
-                logger.debug(f"💾 Debug saved: {debug_path}")
-            except:
-                pass
+            # DEBUG: Uncomment below to save debug images
+            # try:
+            #     import os
+            #     import time
+            #     os.makedirs('debug_ocr', exist_ok=True)
+            #     timestamp = time.strftime("%Y%m%d_%H%M%S")
+            #     debug_path = f"debug_ocr/easyocr_{cleaned}_{timestamp}.jpg"
+            #     cv2.imwrite(debug_path, img_bgr)
+            #     logger.debug(f"💾 Debug saved: {debug_path}")
+            # except:
+            #     pass
 
-            # ★ ADJUST: Lower threshold dari 0.6 ke 0.5 - balance between accuracy and recall
+            # ★ ADJUST: Threshold 0.50 - balance between accuracy and recall
             # Rationale: 0.6 too strict, banyak valid plates rejected
-            #            0.5 lebih balance, masih reject garbage (<0.3)
-            return cleaned if confidence > 0.5 else None
+            #            0.50 balance, masih reject garbage (<0.3)
+            # UNIFIED: >= 0.50 consistent with app.py validation
+            return cleaned if confidence >= 0.50 else None
 
         except Exception as e:
             logger.debug(f"EasyOCR error: {e}")
