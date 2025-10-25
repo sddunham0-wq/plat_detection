@@ -49,6 +49,7 @@ logs/
 
 # Detected plates output
 detected_plates/
+detected_vehicles/
 screenshots/
 debug_*.jpg
 test_*.jpg
