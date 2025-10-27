@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="id">
+
 <head>
     <title>Sistem Manajemen Akses Kendaraan</title>
     <meta charset="utf-8">
@@ -16,6 +17,7 @@
     <link href="{{ url_for('static', filename='css/dashboard.css') }}" rel="stylesheet">
 
 </head>
+
 <body>
 
     <!-- Navigation Bar -->
@@ -96,11 +98,9 @@
                         <!-- Penjelasan: Container untuk video feed camera -->
                         <!-- CSS: .camera-container dan .camera-container img di dashboard.css -->
                         <div class="camera-container mb-3">
-                            <img id="videoFeed"
-                                 src="{{ url_for('video_feed') }}"
-                                 alt="Camera Feed"
-                                 onerror="handleCameraError(this)">
-                            
+                            <img id="videoFeed" src="{{ url_for('video_feed') }}" alt="Camera Feed"
+                                onerror="handleCameraError(this)">
+
                         </div>
 
                         <div class="row">
@@ -171,11 +171,11 @@
                     </div>
                 </div>
 
- <!-- OCR Results Panel - NEW! -->
+                <!-- OCR Results Panel - NEW! -->
                 <div class="card">
                     <div class="card-header">
                         <h6>
-                            <i class="fas fa-text-width me-2"></i>Hasil OCR Terbaru
+                            <i class="fas fa-text-width me-2"></i>Hasil Akses Terbaru
                             <span class="badge bg-info" id="ocrCount">0</span>
                         </h6>
                     </div>
@@ -184,62 +184,12 @@
                     <div class="card-body ocr-results-panel" id="ocrResultsPanel">
                         <div class="empty-state">
                             <i class="fas fa-hourglass-half"></i>
-                            <p>Menunggu hasil OCR...</p>
+                            <p>Menunggu hasil Kendaraan...</p>
                         </div>
                     </div>
                 </div>
 
-                <!-- Recent Access Logs -->
-                <div class="card mt-3">
-                    <div class="card-header">
-                        <h6>
-                            <i class="fas fa-history me-2"></i>Log Akses Terbaru
-                            <span class="badge bg-primary">{{ recent_logs|length }}</span>
-                        </h6>
-                    </div>
-                    <!-- Penjelasan: Panel scrollable untuk log akses terbaru -->
-                    <!-- CSS: max-height dan overflow di dashboard.css -->
-                    <div class="card-body ocr-results-panel">
-                        {% if recent_logs %}
-                            {% for log in recent_logs %}
-                            <div class="log-item log-{{ log.access_status }}">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <strong>{{ log.plate_detected }}</strong>
-                                        {% if log.owner_name %}
-                                            <br><small class="text-muted">{{ log.owner_name }}</small>
-                                        {% endif %}
-                                    </div>
-                                    <div class="text-end">
-                                        {% if log.access_status == 'authorized' %}
-                                            <span class="badge bg-success" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">AUTHORIZED</span>
-                                        {% elif log.access_status == 'denied' %}
-                                            <span class="badge bg-danger" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">DITOLAK</span>
-                                        {% else %}
-                                            <span class="badge bg-warning" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">MANUAL</span>
-                                        {% endif %}
-                                        <br><small class="text-muted">
-                                            {{ log.waktu_deteksi.strftime('%H:%M:%S') }}
-                                        </small>
-                                    </div>
-                                </div>
-                            </div>
-                            {% endfor %}
-                        {% else %}
-                            <div class="text-center text-muted">
-                                <i class="fas fa-inbox fa-2x mb-2"></i>
-                                <p>Belum ada log akses hari ini</p>
-                            </div>
-                        {% endif %}
-                    </div>
-                    <div class="card-footer text-center">
-                        <a href="/access_logs" class="btn btn-outline-primary btn-sm">
-                            <i class="fas fa-list me-1"></i>Lihat Semua Log
-                        </a>
-                    </div>
-                </div>
 
-               
             </div>
         </div>
     </div>
@@ -248,20 +198,20 @@
     <!-- Penjelasan: Notifikasi pop-up untuk system messages -->
     <!-- CSS: .toast-container di common.css -->
     {% with messages = get_flashed_messages() %}
-        {% if messages %}
-            <div class="toast-container">
-                {% for message in messages %}
-                    <div class="toast show" role="alert">
-                        <div class="toast-header">
-                            <i class="fas fa-info-circle text-primary me-2"></i>
-                            <strong class="me-auto">System Notification</strong>
-                            <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
-                        </div>
-                        <div class="toast-body">{{ message }}</div>
-                    </div>
-                {% endfor %}
+    {% if messages %}
+    <div class="toast-container">
+        {% for message in messages %}
+        <div class="toast show" role="alert">
+            <div class="toast-header">
+                <i class="fas fa-info-circle text-primary me-2"></i>
+                <strong class="me-auto">System Notification</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
             </div>
-        {% endif %}
+            <div class="toast-body">{{ message }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
     {% endwith %}
 
     <!-- Bootstrap JS -->
@@ -684,20 +634,20 @@
         }, 300000); // 5 minutes
 
         // Start detection updates saat page load
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             startDetectionUpdates();
 
             // Check initial system status
             fetch('/api/system_status')
                 .then(response => response.json())
                 .then(data => {
-                    updateSystemIndicators({system_status: data});
+                    updateSystemIndicators({ system_status: data });
                 })
                 .catch(error => console.error('Error checking system status:', error));
         });
 
         // Pause updates when page is not visible (optimization)
-        document.addEventListener('visibilitychange', function() {
+        document.addEventListener('visibilitychange', function () {
             if (document.visibilityState === 'visible') {
                 if (!detectionUpdateInterval) {
                     startDetectionUpdates();
@@ -709,4 +659,5 @@
         });
     </script>
 </body>
+
 </html>
