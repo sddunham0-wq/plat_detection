@@ -11,6 +11,14 @@
 /* CAMERA FEED CONTAINER */
 /* ============================================== */
 
+.card-title{
+    font-size: 20px;
+}
+
+.large-card{
+    height: 200px;
+}
+
 .camera-container {
     /* Penjelasan: Container untuk video feed dari kamera */
     background-color: #000000;

@@ -64,8 +64,8 @@ system_status = {
 # Penjelasan SMK: Sistem untuk bikin kotak stabil, tidak kedip-kedip
 # Tracking history untuk smooth bounding boxes
 from collections import deque
-vehicle_tracking_history = deque(maxlen=3)  # OPTIMIZED: 3 frame untuk balance speed & stability
-plate_tracking_history = deque(maxlen=3)    # OPTIMIZED: Reduced from 7 to 3 for faster detection (700ms → 300ms delay)
+vehicle_tracking_history = deque(maxlen=5)  # INCREASED: 5 frames for better stability (Bug #23)
+plate_tracking_history = deque(maxlen=5)    # INCREASED: 5 frames for stable bbox (Bug #23)
 
 # ★ 2-MODEL DUAL DETECTION SYSTEM
 # Penjelasan SMK: Gunakan 2 model untuk deteksi lengkap
@@ -89,7 +89,7 @@ if USE_YOLO:
     try:
         plate_detector = YOLOPlateDetector(
             model_path='models/best.pt',
-            conf_threshold=0.30  # RELAXED: 0.30 to detect far/small plates (5-10m distance)
+            conf_threshold=0.25  # LOWERED: 0.35→0.25 untuk detect lebih banyak plat (Bug #24)
         )
         logger.info("✅ Plate Detector (best.pt) initialized - for PLATE detection")
     except Exception as e:
@@ -220,7 +220,11 @@ def generate_video_frames():
     global camera, latest_detection, system_status
 
     last_detection_time = 0
-    DETECTION_COOLDOWN = 5  # 5 detik cooldown (santai, tidak spam)
+    DETECTION_COOLDOWN = 5.0  # 5 seconds cooldown (SANTAI MODE - less log spam)
+
+    # Frame skipping untuk smooth camera (Bug #23 smoothness)
+    frame_count = 0
+    DETECTION_INTERVAL = 2  # Process detection every 2 frames (skip 1 frame)
 
     # Exponential backoff untuk camera reconnection
     retry_count = 0
@@ -255,9 +259,13 @@ def generate_video_frames():
         # Penjelasan SMK: Semakin besar resolution, semakin detail deteksinya
         # Frame asli = lebih banyak pixel = plat lebih jelas meski jauh
 
-        # Detection dengan cooldown (tidak spam)
+        # Frame skipping: Only process detection every N frames (Bug #23 smoothness)
+        frame_count += 1
+        should_detect = (frame_count % DETECTION_INTERVAL == 0)
+
+        # Detection dengan cooldown (tidak spam) + frame skipping
         current_time = time.time()
-        if current_time - last_detection_time > DETECTION_COOLDOWN:
+        if should_detect and current_time - last_detection_time > DETECTION_COOLDOWN:
             try:
                 # Real deteksi plat dari kamera (BUKAN simulasi lagi!)
                 detected_plate = real_plate_detection(frame)
@@ -282,14 +290,17 @@ def generate_video_frames():
         # Draw detection info pada frame
         draw_detection_info(frame)
 
-        # Encode frame untuk streaming
-        ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        # Encode frame untuk streaming (Bug #23 smoothness optimization)
+        # JPEG quality 70 (was 85) = smaller size, faster encoding, smoother stream
+        ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
         if ret:
             frame_bytes = buffer.tobytes()
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
-        time.sleep(0.1)  # Small delay untuk CPU
+        # Reduced sleep for smoother video (Bug #23 smoothness)
+        # 0.03s = ~33 FPS (was 0.1s = 10 FPS)
+        time.sleep(0.03)
 
 def calculate_iou(box1, box2):
     """
@@ -597,8 +608,8 @@ def real_plate_detection(frame):
 
         # ★ APPLY SMOOTHING untuk stabilisasi bounding boxes
         # Penjelasan: Kotak tidak kedip-kedip, smooth antar frame
-        # IOU threshold 0.3 = lebih toleran untuk object yang bergerak/berubah ukuran dikit
-        smoothed_vehicles = smooth_bounding_boxes(vehicle_bboxes, vehicle_tracking_history, iou_threshold=0.3)
+        # IOU threshold 0.2 = VERY toleran untuk object bergerak (Bug #23 stability fix)
+        smoothed_vehicles = smooth_bounding_boxes(vehicle_bboxes, vehicle_tracking_history, iou_threshold=0.2)
 
         # ★ NEW OPTIMIZATION: Apply NMS untuk vehicle bboxes juga
         # Penjelasan: Filter overlapping vehicle detections (mobil yang sama terdeteksi berkali-kali)
@@ -631,9 +642,9 @@ def real_plate_detection(frame):
 
         # ★ APPLY SMOOTHING untuk plate detections juga
         # Penjelasan: Kotak plat juga stabil, tidak jitter
-        # IOU threshold 0.25 = lebih toleran untuk plat bergerak (OPTIMIZED from 0.40)
+        # IOU threshold 0.15 = VERY toleran untuk plat bergerak (Bug #23 stability fix)
         if bboxes:
-            smoothed_plates = smooth_bounding_boxes(bboxes, plate_tracking_history, iou_threshold=0.25)
+            smoothed_plates = smooth_bounding_boxes(bboxes, plate_tracking_history, iou_threshold=0.15)
         else:
             smoothed_plates = []
 
@@ -641,24 +652,65 @@ def real_plate_detection(frame):
         # Penjelasan SMK: Filter overlapping boxes dari multi-scale detection
         # Hanya keep 1 box terbaik per plat → tidak ada kotak yang menimpa!
         if smoothed_plates and len(smoothed_plates) > 1:
-            # NMS dengan IOU threshold 0.3 = 30% overlap (AGGRESSIVE filtering)
-            # Kalau 2 box overlap >30% → buang yang lebih kecil
-            # Threshold rendah untuk handle multi-scale detection yang overlap tinggi
-            nms_plates = non_maximum_suppression(smoothed_plates, iou_threshold=0.3)
+            # NMS dengan IOU threshold 0.15 = 15% overlap (Bug #24 - relaxed untuk multi-plate)
+            # LOWERED: 0.25→0.15 agar 2 plat berbeda tidak dianggap overlap
+            # Threshold lebih ketat untuk keep multiple plates
+            nms_plates = non_maximum_suppression(smoothed_plates, iou_threshold=0.15)
+            logger.info(f"📊 NMS: {len(smoothed_plates)} → {len(nms_plates)} plates (removed {len(smoothed_plates) - len(nms_plates)} overlaps)")
         else:
             nms_plates = smoothed_plates
 
+        # ★ NEW (Bug #23 Fix): POSITION-BASED FILTER
+        # Penjelasan: Plat HARUS berada di dalam area vehicle (reject sendal di lantai)
+        # Logic: Check apakah center point plat ada di dalam vehicle bounding box
+        filtered_plates = []
+        if nms_plates and nms_vehicles:
+            logger.info(f"🔍 Position filter: Checking {len(nms_plates)} plates against {len(nms_vehicles)} vehicles")
+
+            for plate_bbox in nms_plates:
+                px, py, pw, ph = plate_bbox[:4]
+                # Calculate plate center point
+                plate_center_x = px + pw // 2
+                plate_center_y = py + ph // 2
+
+                # Check if plate center is inside ANY vehicle bbox
+                inside_vehicle = False
+                for vehicle_bbox in nms_vehicles:
+                    vx, vy, vw, vh = vehicle_bbox[:4]
+                    # Check if center point inside vehicle rectangle
+                    if (vx <= plate_center_x <= vx + vw and
+                        vy <= plate_center_y <= vy + vh):
+                        inside_vehicle = True
+                        logger.debug(f"✅ Plate ({px},{py},{pw}x{ph}) inside vehicle ({vx},{vy},{vw}x{vh})")
+                        break
+
+                if inside_vehicle:
+                    filtered_plates.append(plate_bbox)
+                else:
+                    logger.info(f"❌ REJECTED - Plate ({px},{py}) OUTSIDE vehicles (Bug #23 position filter)")
+
+            logger.info(f"📊 Position filter: {len(nms_plates)} → {len(filtered_plates)} plates (removed {len(nms_plates) - len(filtered_plates)} false positives)")
+        elif nms_plates:
+            # No vehicle detected, keep all plates (fallback - trust YOLO)
+            logger.warning("⚠️ No vehicles detected, skipping position filter (trust YOLO)")
+            filtered_plates = nms_plates
+        else:
+            filtered_plates = []
+
+        # Use filtered plates for final processing
+        final_plates = filtered_plates
+
         # ★ BUG FIX #1: Thread-safe update ke global variable
         with bboxes_lock:
-            all_detected_bboxes = nms_plates if nms_plates else []
+            all_detected_bboxes = final_plates if final_plates else []
 
         # ★ NEW: Process ALL detected plates untuk text labels
-        # Penjelasan: Loop semua plate yang terdeteksi, coba OCR setiap plat
+        # Penjelasan: Loop semua plate yang terdeteksi (AFTER position filter), coba OCR setiap plat
         # Update all_detected_plates dengan hasil OCR (text + confidence + bbox)
         temp_plates = []
-        if nms_plates:
+        if final_plates:
             frame_h, frame_w = frame.shape[:2]
-            for idx, bbox in enumerate(nms_plates[:5]):  # Max 5 plates untuk performa
+            for idx, bbox in enumerate(final_plates[:5]):  # Max 5 plates untuk performa
                 try:
                     x, y, w, h = bbox
                     # Quick validation
@@ -682,7 +734,7 @@ def real_plate_detection(frame):
                     # Try OCR on full plate
                     plate_text, ocr_conf = ocr_processor.read_plate_with_confidence(roi)
 
-                    if plate_text and ocr_processor.is_valid_plate(plate_text) and ocr_conf >= 0.50:
+                    if plate_text and ocr_processor.is_valid_plate(plate_text) and ocr_conf >= 0.01:
                         temp_plates.append({
                             'text': plate_text,
                             'confidence': ocr_conf,
@@ -801,7 +853,7 @@ def real_plate_detection(frame):
             plate_text, ocr_confidence = ocr_processor.read_plate_with_confidence(roi)
 
             # ★ CONFIDENCE THRESHOLD: Filter hasil OCR berdasarkan confidence
-            MIN_OCR_CONFIDENCE = 0.50  # BALANCED 0.50 - reject garbage (<0.3) but allow valid plates (0.5-0.9)
+            MIN_OCR_CONFIDENCE = 0.01  # ULTRA LOW 0.30→0.01 (Bug #24) - accept very low confidence, rely on validation
 
             # Log hasil OCR
             if plate_text:

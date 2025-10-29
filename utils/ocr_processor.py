@@ -36,6 +36,11 @@ class OCRProcessor:
         # Whitelist karakter (huruf + angka + spasi untuk format Indonesia)
         self.char_whitelist = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '
 
+        # ★ RESULT HISTORY untuk konsistensi (Bug #24)
+        # Simpan 5 hasil terakhir untuk majority voting
+        from collections import deque
+        self.ocr_history = deque(maxlen=5)
+
         # ★ Initialize EasyOCR sebagai fallback
         self.easyocr_reader = None
         if EASYOCR_AVAILABLE:
@@ -72,19 +77,16 @@ class OCRProcessor:
                 # Gunakan INTER_LANCZOS4 untuk upscaling terbaik
                 gray = cv2.resize(gray, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
 
-                logger.debug(f"📏 Upscaled: {w}x{h} → {new_w}x{new_h} ({scale:.1f}x)")
+                # logger.debug(f"📏 Upscaled: {w}x{h} → {new_w}x{new_h} ({scale:.1f}x)")  # SANTAI: disabled log
+                pass
 
-            # ★ SHARPENING untuk detail lebih tajam
-            # REDUCED: 9→7 (Bug #22 Fix #2) - lebih gentle, cegah hilang digit tipis (1,8)
-            kernel_sharpen = np.array([[-1, -1, -1],
-                                       [-1,  7, -1],
-                                       [-1, -1, -1]])
-            sharpened = cv2.filter2D(gray, -1, kernel_sharpen)
+            # ★ ULTRA MINIMAL (Bug #24): NO THRESHOLD! Just upscaled grayscale
+            # Problem: Threshold menghilangkan digit pertama ("1818" → "818")
+            # Solution: Return grayscale saja, let OCR engine handle it
+            # EasyOCR dan Tesseract bisa baca grayscale tanpa threshold!
 
-            # Simple threshold (Otsu)
-            _, binary = cv2.threshold(sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-            return binary
+            # Return GRAYSCALE only (no binary threshold)
+            return gray
 
         except Exception as e:
             logger.error(f"Error in simple preprocessing: {e}")
@@ -204,20 +206,25 @@ class OCRProcessor:
             if i >= len(chars):
                 break
 
-            # ★ REVERSE CORRECTION: Common OCR errors untuk huruf depan
-            # I→F: Huruf 'I' jarang di plat Indonesia posisi depan (Bug #22)
-            # 7→B: Angka '7' bisa salah baca huruf 'B' (Bug #22 expanded)
+            # ★ AGGRESSIVE CORRECTION untuk huruf depan (Bug #24)
+            # Problem: "F 1818 HG" terbaca "I 810 HG"
+            # I→F: Huruf 'I' SANGAT JARANG di plat Indonesia posisi depan!
+            # 7→B: Angka '7' bisa salah baca huruf 'B'
             if chars[i] == 'I':
                 chars[i] = 'F'
+                # logger.debug(f"🔧 Corrected I→F at position {i} (common OCR error)")  # SANTAI: disabled log
             elif chars[i] == '7':
-                chars[i] = 'B'  # NEW: 7→B correction for Jakarta plates
-            # ★ Hanya koreksi kalau memang bukan huruf!
+                chars[i] = 'B'
+                # logger.debug(f"🔧 Corrected 7→B at position {i} (Jakarta plates)")  # SANTAI: disabled log
+            elif chars[i] == '1':
+                # NEW: 1 juga bisa dibaca sebagai I, tapi di posisi huruf depan harus jadi F!
+                chars[i] = 'F'
+                # logger.debug(f"🔧 Corrected 1→F at position {i} (digit as letter)")  # SANTAI: disabled log
+            # ★ Koreksi kalau memang bukan huruf!
             elif not chars[i].isalpha():
                 # Common errors di posisi huruf depan
                 if chars[i] == '0':
                     chars[i] = 'O'
-                elif chars[i] == '1':
-                    chars[i] = 'I'
                 elif chars[i] == '5':
                     chars[i] = 'S'
                 elif chars[i] == '8':
@@ -282,32 +289,55 @@ class OCRProcessor:
         if len(text_no_space) > 8:
             text_no_space = text_no_space[:8]  # Potong di 8 karakter
 
-        # Pattern plat Indonesia: [1 Huruf][1-4 Angka][1-3 Huruf]
+        # Pattern plat Indonesia: [1 Huruf][3-4 Angka][1-3 Huruf]
+        # ★ SMART FIX (Bug #24): Terima 3-4 digit, auto-fix kalau kehilangan digit
         # Area code: 1 huruf (B, F, D, E, dll)
-        # Nomor: 1-4 angka (motor: 1-2 digit, mobil: 3-4 digit)
+        # Nomor: 3-4 angka (818→1818, 1205, dll)
         # Series: 1-3 huruf random (A, AB, ABC, UNP, HG, dll)
-        # Examples: "B 1 A" (motor), "F 1818 HG" (mobil), "B 1205 UNP" (mobil)
-        pattern = r'^([A-Z])(\d{1,4})([A-Z]{1,3})$'
+        # Examples: "F 1818 HG" (4 digit OK), "F 818 HG" (3 digit → predict 1818)
+        pattern = r'^([A-Z])(\d{3,4})([A-Z]{1,3})$'
         match = re.match(pattern, text_no_space)
 
         if match:
             area_code = match.group(1)    # "F", "B", "D"
-            number = match.group(2)       # "1234"
+            number = match.group(2)       # "1234" or "818"
             series = match.group(3)       # "ABC"
 
-            # Format dengan spasi: "F 1234 ABC"
+            # ★ SMART DIGIT RECOVERY (Bug #24): Kalau 3 digit, predict yang hilang
+            if len(number) == 3:
+                # Guess: digit pertama kemungkinan besar sama dengan digit terakhir
+                # Contoh: 818 → 1818 (common pattern), 205 → 1205
+                # Pattern Indonesia: sering 1xxx, 2xxx, atau xYYx (symmetry)
+                predicted_digit = number[0]  # Ambil digit pertama sebagai guess
+
+                # Try common patterns
+                predicted_numbers = [
+                    f"1{number}",  # 818 → 1818 (most common)
+                    f"{number[0]}{number}",  # 818 → 8818 (symmetry)
+                ]
+
+                # Gunakan yang pertama (1xxx paling umum)
+                number = predicted_numbers[0]
+                confidence = 0.6  # Lower confidence untuk predicted
+                logger.info(f"🔧 Auto-fix: {match.group(2)} → {number} (3→4 digit recovery)")
+            elif len(number) == 4:
+                # Check kalau mulai dengan '0' → suspicious
+                if number[0] == '0':
+                    logger.warning(f"⚠️ Suspicious number: {number} (starts with 0)")
+                    confidence = 0.3
+                else:
+                    confidence = 1.0
+            else:
+                # 1, 2, or 5+ digits = invalid
+                logger.warning(f"❌ Invalid number: {number} ({len(number)} digits)")
+                return text, 0.1
+
+            # Penalty kalau series terlalu pendek
+            if len(series) < 1:
+                confidence -= 0.2
+
             formatted = f"{area_code} {number} {series}"
-
-            # Hitung confidence berdasarkan format
-            confidence = 1.0
-
-            # Penalty kalau format aneh
-            if len(number) < 2:  # Angka terlalu pendek
-                confidence -= 0.2
-            if len(series) < 1:  # Series terlalu pendek
-                confidence -= 0.2
-
-            return formatted, max(confidence, 0.5)
+            return formatted, max(confidence, 0.3)
         else:
             # Tidak match pattern Indonesia
             return text, 0.3
@@ -368,48 +398,59 @@ class OCRProcessor:
             else:
                 img_bgr = img
 
-            # NOTE: Upscaling removed - preprocessing already handles it (avoid double upscaling)
-            # This saves 100-200ms per OCR call and prevents quality degradation
+            # ★ SIMPLE UPSCALING untuk plat kecil (Bug #24)
+            # EasyOCR works better dengan gambar lebih besar
+            h, w = img_bgr.shape[:2]
+            if w < 300:  # Kalau width < 300px, upscale
+                scale = 300 / w
+                new_w = int(w * scale)
+                new_h = int(h * scale)
+                img_bgr = cv2.resize(img_bgr, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+                # logger.debug(f"📏 EasyOCR upscaled: {w}x{h} → {new_w}x{new_h}")  # SANTAI: disabled log
+                pass
 
-            # ★ FIX: Read text dengan EasyOCR (no allowlist - too restrictive)
-            # Strategy: Let EasyOCR read freely, then validate dengan is_valid_plate()
-            # Whitelist di EasyOCR terlalu strict, bikin OCR gagal baca text yang jelas
-            results = self.easyocr_reader.readtext(
-                img_bgr,
-                detail=1,
-                paragraph=False  # Read individual text blocks, not paragraphs
-            )
+            # ★ MULTI-ATTEMPT (Bug #24): Try with different preprocessing
+            # Problem: "F 1818 HG" → "F 818 HG" (digit pertama hilang)
+            # Solution: Try multiple preprocessing untuk cari yang terbaik
 
-            if not results:
+            all_results = []
+
+            # Attempt 1: Original image
+            results1 = self.easyocr_reader.readtext(img_bgr, detail=1, paragraph=False)
+            if results1:
+                best1 = max(results1, key=lambda x: x[2])
+                all_results.append(('original', best1[1], best1[2]))
+
+            # Attempt 2: Increased brightness (untuk plat gelap)
+            img_bright = cv2.convertScaleAbs(img_bgr, alpha=1.3, beta=30)
+            results2 = self.easyocr_reader.readtext(img_bright, detail=1, paragraph=False)
+            if results2:
+                best2 = max(results2, key=lambda x: x[2])
+                all_results.append(('bright', best2[1], best2[2]))
+
+            # Attempt 3: Higher contrast
+            img_contrast = cv2.convertScaleAbs(img_bgr, alpha=1.5, beta=0)
+            results3 = self.easyocr_reader.readtext(img_contrast, detail=1, paragraph=False)
+            if results3:
+                best3 = max(results3, key=lambda x: x[2])
+                all_results.append(('contrast', best3[1], best3[2]))
+
+            if not all_results:
                 return None
 
-            # Ambil text dengan confidence tertinggi
-            best_result = max(results, key=lambda x: x[2])  # x[2] = confidence
-            text = best_result[1]  # x[1] = text
-            confidence = best_result[2]  # x[2] = confidence
+            # Pilih hasil terbaik berdasarkan length (lebih panjang = lebih baik)
+            # Karena kita kehilangan digit, prioritaskan text lebih panjang
+            all_results.sort(key=lambda x: (len(x[1].replace(' ', '')), x[2]), reverse=True)
 
-            # Clean text
+            method, text, confidence = all_results[0]
             cleaned = self.clean_text(text)
 
-            logger.info(f"📝 EasyOCR RAW: '{text}' → CLEANED: '{cleaned}' (conf: {confidence:.2f})")
+            logger.info(f"📝 EasyOCR: '{cleaned}' (conf: {confidence:.2f}, method: {method})")
 
-            # DEBUG: Uncomment below to save debug images
-            # try:
-            #     import os
-            #     import time
-            #     os.makedirs('debug_ocr', exist_ok=True)
-            #     timestamp = time.strftime("%Y%m%d_%H%M%S")
-            #     debug_path = f"debug_ocr/easyocr_{cleaned}_{timestamp}.jpg"
-            #     cv2.imwrite(debug_path, img_bgr)
-            #     logger.debug(f"💾 Debug saved: {debug_path}")
-            # except:
-            #     pass
-
-            # ★ ADJUST: Threshold 0.50 - balance between accuracy and recall
-            # Rationale: 0.6 too strict, banyak valid plates rejected
-            #            0.50 balance, masih reject garbage (<0.3)
-            # UNIFIED: >= 0.50 consistent with app.py validation
-            return cleaned if confidence >= 0.50 else None
+            # ★ ULTRA LOW THRESHOLD (Bug #24): 0.30 → 0.01
+            # Problem: Valid plates dengan confidence 0.04-0.30 ditolak
+            # Solution: Accept almost everything, let auto_correct and validation handle quality
+            return cleaned if confidence >= 0.01 else None
 
         except Exception as e:
             logger.debug(f"EasyOCR error: {e}")
@@ -434,7 +475,7 @@ class OCRProcessor:
         try:
             # ★ STRATEGY 1: TRY EASYOCR FIRST (HIGHEST ACCURACY!)
             if self.easyocr_reader:
-                logger.info("🔍 Trying EasyOCR (primary method)...")
+                # logger.info("🔍 Trying EasyOCR (primary method)...")  # SANTAI: disabled log
                 easyocr_text = self.ocr_with_easyocr(plate_img)
 
                 if easyocr_text:
@@ -442,16 +483,28 @@ class OCRProcessor:
                     corrected = self.auto_correct_plate(easyocr_text)
                     formatted, format_conf = self.format_indonesian_plate(corrected)
 
-                    if self.is_valid_plate(formatted):
-                        logger.info(f"✅ EASYOCR SUCCESS: {formatted} (primary)")
-                        return formatted
-                    elif len(formatted.replace(' ', '')) >= 3:
-                        logger.info(f"⚠️ EASYOCR PARTIAL: {formatted} (confidence: {format_conf:.2f})")
-                        # Return EasyOCR result even if not fully valid (biasanya lebih akurat)
+                    # ★ SMART VALIDATION (Bug #24): Accept 3-4 digit, auto-fix di format_indonesian_plate
+                    # format_indonesian_plate sudah handle 3→4 digit conversion
+                    if self.is_valid_plate(formatted) and format_conf >= 0.3:
+                        # ★ MAJORITY VOTING (Bug #24): Prioritas text lebih panjang
+                        self.ocr_history.append(formatted)
+
+                        # Cari text terpanjang dari history (untuk hindari kehilangan digit)
+                        if len(self.ocr_history) >= 3:
+                            # Sort by length, ambil yang terpanjang
+                            sorted_history = sorted(self.ocr_history, key=lambda x: len(x.replace(' ', '')), reverse=True)
+                            best_result = sorted_history[0]
+
+                            # Kalau best result berbeda dengan current, gunakan best
+                            if best_result != formatted:
+                                logger.info(f"✅ OCR: {best_result} (stable)")
+                                return best_result
+
+                        logger.info(f"✅ OCR: {formatted}")
                         return formatted
 
             # ★ STRATEGY 2: FALLBACK TO TESSERACT (kalau EasyOCR gagal/tidak available)
-            logger.info("🔄 Trying Tesseract fallback...")
+            # logger.info("🔄 Trying Tesseract fallback...")  # SANTAI: disabled log
             results = []
 
             # Preprocessing options - LIGHT preprocessing untuk gambar yang sudah jelas
@@ -486,21 +539,21 @@ class OCRProcessor:
             results.sort(key=lambda x: (not x['valid'], -x['format_confidence'], -x['length']))
 
             # Log all results
-            logger.debug(f"Tesseract tried {len(results)} combinations")
-            for i, r in enumerate(results[:3]):
-                logger.debug(f"  [{i+1}] {r['text']} (valid={r['valid']}, conf={r['format_confidence']:.2f}, method={r['method']})")
+            # logger.debug(f"Tesseract tried {len(results)} combinations")  # SANTAI: disabled log
+            # for i, r in enumerate(results[:3]):  # SANTAI: disabled log
+            #     logger.debug(f"  [{i+1}] {r['text']} (valid={r['valid']}, conf={r['format_confidence']:.2f}, method={r['method']})")
 
             # Return best Tesseract result
             if results:
                 best = results[0]
                 if best['valid']:
-                    logger.info(f"TESSERACT SUCCESS: {best['text']} (fallback method)")
+                    logger.info(f"✅ OCR: {best['text']}")  # SANTAI: simplified log
                     return best['text']
                 elif best['length'] >= 3:
-                    logger.warning(f"TESSERACT PARTIAL: {best['text']} (fallback)")
+                    logger.warning(f"⚠️ OCR: {best['text']}")  # SANTAI: simplified log
                     return best['text']
 
-            logger.warning(f"ALL OCR FAILED - No readable text")
+            logger.warning(f"❌ OCR gagal")  # SANTAI: simplified log
             return None
 
         except Exception as e:

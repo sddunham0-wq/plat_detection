@@ -28,11 +28,12 @@ class YOLOPlateDetector:
         self.model = None
         self.model_type = None
 
-        # Plat Indonesia validation parameters (RELAXED for far/small plates)
+        # Plat Indonesia validation parameters (BALANCED for close-up + far plates)
         self.MIN_WIDTH = 50   # RELAXED: Support plates 50-100px (far distance 5-10m)
         self.MIN_HEIGHT = 20  # RELAXED: Support smaller plates
+        self.MAX_HEIGHT = 60  # NEW: Plat max 60px height (reject tall objects like sendal)
         self.MIN_AREA = 1500  # RELAXED: 50x30 = 1500 pixels (was 3000)
-        self.MIN_ASPECT_RATIO = 1.8  # RELAXED: 1.8:1 more tolerant (was 2.0)
+        self.MIN_ASPECT_RATIO = 2.0  # STRICT: 2.0:1 minimum (plat Indonesia standard)
         self.MAX_ASPECT_RATIO = 5.5  # Maximum 5.5:1 untuk filter noise
 
         # Try specified model first
@@ -111,9 +112,14 @@ class YOLOPlateDetector:
                         w = int(x2 - x1)
                         h = int(y2 - y1)
 
-                        # Validate box size (minimum untuk plat Indonesia)
+                        # Validate box size (minimum & maximum untuk plat Indonesia)
                         if w < self.MIN_WIDTH or h < self.MIN_HEIGHT:
                             logger.debug(f"❌ Rejected - too small: {w}x{h} (min {self.MIN_WIDTH}x{self.MIN_HEIGHT})")
+                            continue
+
+                        # NEW: Reject tall objects (sendal, etc) - plat max 60px height
+                        if h > self.MAX_HEIGHT:
+                            logger.debug(f"❌ Rejected - too tall: height {h}px (max {self.MAX_HEIGHT})")
                             continue
 
                         # Validate area
