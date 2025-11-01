@@ -220,11 +220,14 @@ def generate_video_frames():
     global camera, latest_detection, system_status
 
     last_detection_time = 0
-    DETECTION_COOLDOWN = 5.0  # 5 seconds cooldown (SANTAI MODE - less log spam)
+    DETECTION_COOLDOWN = 1.0  # ★ REDUCED: 5.0 → 1.0 seconds (update label lebih cepat)
 
     # Frame skipping untuk smooth camera (Bug #23 smoothness)
     frame_count = 0
     DETECTION_INTERVAL = 2  # Process detection every 2 frames (skip 1 frame)
+
+    # ★ FIX: Initialize detected_plate di luar loop
+    detected_plate = None
 
     # Exponential backoff untuk camera reconnection
     retry_count = 0
@@ -993,7 +996,7 @@ def draw_detection_info(frame):
                     # Validate bbox
                     if x >= 0 and y >= 0 and x + w <= frame_w and y + h <= frame_h and w > 0 and h > 0:
                         # Draw rectangle BIRU (thick untuk mobil)
-                        cv2.rectangle(frame, (x, y), (x+w, y+h), BLUE, 3)
+                        cv2.rectangle(frame, (x, y), (x+w, y+h), BLUE, 1)
 
                         # ★ Label dengan JENIS KENDARAAN (MOBIL / MOTOR / BUS / TRUK)
                         cv2.putText(frame, vehicle_label, (x, y-10),
@@ -1012,7 +1015,7 @@ def draw_detection_info(frame):
                     # Validate bbox masih dalam frame bounds
                     if x >= 0 and y >= 0 and x + w <= frame_w and y + h <= frame_h and w > 0 and h > 0:
                         # Draw green rectangle
-                        cv2.rectangle(frame, (x, y), (x+w, y+h), GREEN, 2)
+                        cv2.rectangle(frame, (x, y), (x+w, y+h), GREEN, 1)
 
                         # ★ NEW: Draw plate label di atas bbox
                         # Cari matching plate text dari all_detected_plates
@@ -1877,8 +1880,8 @@ def add_vehicle():
         cursor.close()
         conn.close()
 
-        flash(f'✅ Kendaraan {nomor_plat} berhasil ditambahkan!')
-        logger.info(f"✅ Vehicle added: {nomor_plat} - {nama_pemilik}")
+        flash(f'Kendaraan {nomor_plat} berhasil ditambahkan!')
+        logger.info(f" Vehicle added: {nomor_plat} - {nama_pemilik}")
 
     except pymysql.IntegrityError as e:
         # Check if duplicate key error
@@ -1925,8 +1928,8 @@ def edit_vehicle():
         cursor.close()
         conn.close()
 
-        flash('✅ Data kendaraan berhasil diupdate!')
-        logger.info(f"✅ Vehicle updated: ID {vehicle_id} - {plat_nomor}")
+        flash('Data kendaraan berhasil diupdate!')
+        logger.info(f"Vehicle updated: ID {vehicle_id} - {plat_nomor}")
 
     except Exception as e:
         flash(f'❌ Error update kendaraan: {e}')
@@ -1957,7 +1960,7 @@ def delete_vehicle():
             cursor.execute("DELETE FROM kendaraan_terdaftar WHERE id_kendaraan = %s", (vehicle_id,))
             conn.commit()
 
-            flash(f'✅ Kendaraan {vehicle["nomor_plat"]} ({vehicle["nama_pemilik"]}) berhasil dihapus!')
+            flash(f'Kendaraan {vehicle["nomor_plat"]} ({vehicle["nama_pemilik"]}) berhasil dihapus!')
             logger.info(f"✅ Vehicle deleted: {vehicle['nomor_plat']} - {vehicle['nama_pemilik']}")
         else:
             flash('❌ Kendaraan tidak ditemukan!')
