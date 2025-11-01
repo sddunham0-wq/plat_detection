@@ -532,7 +532,7 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
-                        showNotification('✅ Screenshot berhasil disimpan: ' + data.filename, 'success');
+                        showNotification('Screenshot berhasil disimpan: ' + data.filename, 'success');
                     } else {
                         showNotification('❌ Error: ' + data.message, 'danger');
                     }
@@ -560,7 +560,7 @@
                             // Update gate status immediately
                             const gateDiv = document.getElementById('gateStatus');
                             gateDiv.className = 'gate-status gate-open';
-                            gateDiv.innerHTML = '🟡 MANUAL OVERRIDE - Gate dibuka manual';
+                            gateDiv.innerHTML = 'MANUAL OVERRIDE - Gate dibuka manual';
                         } else {
                             showNotification('❌ Error: ' + data.message, 'danger');
                         }
@@ -579,7 +579,7 @@
             const videoFeed = document.getElementById('videoFeed');
             const timestamp = new Date().getTime();
             videoFeed.src = '/video_feed?' + timestamp;
-            showNotification('📹 Camera refreshed', 'info');
+            showNotification('Camera refreshed', 'info');
         }
 
         function handleCameraError(img) {

@@ -1346,12 +1346,12 @@ def api_manual_override():
     try:
         system_status['gate_status'] = 'opened'
 
-        message = "🟡 MANUAL OVERRIDE - Gate opened by security"
-        logger.info("🟡 Manual override activated")
+        message = "MANUAL OVERRIDE - Gate opened by security"
+        logger.info("Manual override activated")
 
         # Print ke console
         print("\n" + "=" * 50)
-        print("🟡 MANUAL OVERRIDE")
+        print("MANUAL OVERRIDE")
         print("Security guard membuka gate secara manual")
         print(f"Timestamp: {datetime.now()}")
         print("=" * 50 + "\n")
